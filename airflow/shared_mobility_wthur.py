@@ -48,6 +48,26 @@ from airflow.operators.python import get_current_context
 from airflow.providers.mongo.hooks.mongo import MongoHook
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 
+
+class CheckOrCreatePostgresTableOperator(BaseOperator):
+
+    def __init__(self, declarative_base: Any, table_name: str, target_conn_id: str, **kwargs):
+        super().__init__(**kwargs)
+        self._declarative_base = declarative_base
+        self._table_name = table_name
+        self._target_conn_id = target_conn_id
+
+    # def execute(self, context, target_conn_id: str):
+    def execute(self, context):
+        hook = PostgresHook(self._target_conn_id)
+        engine = hook.get_sqlalchemy_engine()
+
+        # If table is not existent, create table
+        with engine.connect() as conn:
+            if not engine.dialect.has_table(conn, self._table_name):
+                self._declarative_base.metadata.tables[self._table_name].create(engine)
+
+
 with DAG(
     dag_id='shared_mobility_wthur',
     schedule_interval='5 2 * * *',  # every day at 02:00
@@ -69,24 +89,6 @@ with DAG(
 
     # SQLAlchemy ORM: table definitions
     Base = declarative_base()
-
-    class CheckOrCreatePostgresTableOperator(BaseOperator):
-
-        def __init__(self, declarative_base: Any, table_name: str, target_conn_id: str, **kwargs):
-            super().__init__(**kwargs)
-            self._declarative_base = declarative_base
-            self._table_name = table_name
-            self._target_conn_id = target_conn_id
-
-        # def execute(self, context, target_conn_id: str):
-        def execute(self, context):
-            hook = PostgresHook(self._target_conn_id)
-            engine = hook.get_sqlalchemy_engine()
-
-            # If table is not existent, create table
-            with engine.connect() as conn:
-                if not engine.dialect.has_table(conn, self._table_name):
-                    self._declarative_base.metadata.tables[self._table_name].create(engine)
 
     class Path(Base):
         __tablename__ = 'shared_mobility_path'
