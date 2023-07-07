@@ -25,7 +25,6 @@ Rows:
 """
 import datetime as dt
 import logging
-from typing import Any
 
 import geopandas as gpd
 import numpy as np
@@ -37,8 +36,7 @@ from great_expectations.dataset import PandasDataset
 from psycopg2 import sql
 from shapely.geometry import LineString, Point
 from sqlalchemy import (Boolean, Column, DateTime, Float, Index, Integer,
-                        String, delete)
-from sqlalchemy.orm import declarative_base
+                        MetaData, String, Table, delete)
 
 from airflow import DAG
 from airflow.decorators import task
@@ -51,9 +49,9 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 
 class CheckOrCreatePostgresTableOperator(BaseOperator):
 
-    def __init__(self, declarative_base: Any, table_name: str, target_conn_id: str, **kwargs):
+    def __init__(self, meta: MetaData, table_name: str, target_conn_id: str, **kwargs):
         super().__init__(**kwargs)
-        self._declarative_base = declarative_base
+        self._meta = meta
         self._table_name = table_name
         self._target_conn_id = target_conn_id
 
@@ -65,7 +63,7 @@ class CheckOrCreatePostgresTableOperator(BaseOperator):
         # If table is not existent, create table
         with engine.connect() as conn:
             if not engine.dialect.has_table(conn, self._table_name):
-                self._declarative_base.metadata.tables[self._table_name].create(engine)
+                self._meta.tables[self._table_name].create(engine)
 
 
 with DAG(
@@ -87,35 +85,38 @@ with DAG(
     PSQL_PUBLIC_CONN_ID = 'psql_public'
     MONGO_CONN_ID = 'mongo_opendata'
 
-    # SQLAlchemy ORM: table definitions
-    Base = declarative_base()
+    # Cannot use sqlalchemy.orm.declarative_base() in the airflow context.
+    # Otherwise, the same MetaData object as for the metadatabase of airflow is used.
+    # This creates many conflicts during DagBag filling.
+    meta = MetaData()
 
-    class Path(Base):
-        __tablename__ = 'shared_mobility_path'
+    table_path = Table(
+       'shared_mobility_path', meta,
+       Column('id', String, primary_key=True, nullable=False),
+       Column('provider', String, nullable=False),
+       Column('point', Geometry('POINT'), nullable=False),
+       Column('time_from', DateTime, primary_key=True, nullable=False),
+       Column('time_to', DateTime, nullable=False),
+       Column('distance_m', Float, nullable=False),
+       Column('moving', Boolean, nullable=False),
+       Column('distance_m_walk', Float, nullable=True),
+       Column('path_walk_since_last', Geometry('LINESTRING'), nullable=True),
+       Column('distance_m_bike', Float, nullable=True),
+       Column('path_bike_since_last', Geometry('LINESTRING'), nullable=True),
 
-        id = Column(String, primary_key=True, nullable=False)
-        provider = Column(String, nullable=False)
-        point = Column(Geometry('POINT'), nullable=False)
-        time_from = Column(DateTime, primary_key=True, nullable=False)
-        time_to = Column(DateTime, nullable=False)
-        distance_m = Column(Float, nullable=False)
-        moving = Column(Boolean, nullable=False)
-        distance_m_walk = Column(Float, nullable=True)
-        path_walk_since_last = Column(Geometry('LINESTRING'), nullable=True)
-        distance_m_bike = Column(Float, nullable=True)
-        path_bike_since_last = Column(Geometry('LINESTRING'), nullable=True)
+    )
 
-    class Provider(Base):
-        __tablename__ = 'shared_mobility_provider'
-
-        time = Column(DateTime, primary_key=True, nullable=False)
-        provider = Column(String, primary_key=True, nullable=False)
-        count_datapoints = Column(Integer, nullable=False)
-        count_distinct_ids = Column(Integer, nullable=False)
-        avg_delta_updated = Column(Float, nullable=False)
-        count_available = Column(Integer, nullable=False)
-        count_disabled = Column(Integer, nullable=False)
-        count_reserved = Column(Integer, nullable=False)
+    table_provider = Table(
+        'shared_mobility_provider', meta,
+        Column('time', DateTime, primary_key=True, nullable=False),
+        Column('provider', String, primary_key=True, nullable=False),
+        Column('count_datapoints', Integer, nullable=False),
+        Column('count_distinct_ids', Integer, nullable=False),
+        Column('avg_delta_updated', Float, nullable=False),
+        Column('count_available', Integer, nullable=False),
+        Column('count_disabled', Integer, nullable=False),
+        Column('count_reserved', Integer, nullable=False),
+    )
 
     # ################################################################################################################
     # SUBDAG: Provider
@@ -171,7 +172,7 @@ with DAG(
         # Load to PSQL
         psql_hook = PostgresHook(target_conn_id)
         engine = psql_hook.get_sqlalchemy_engine()
-        df.to_sql(Provider.__tablename__, engine, index=False, if_exists='append')
+        df.to_sql(table_provider.name, engine, index=False, if_exists='append')
 
     # ################################################################################################################
     # SUBDAG: PATH
@@ -245,7 +246,7 @@ with DAG(
             ) x
             where
                 x.r <= 2
-        """).format(mart=sql.Identifier(Path.__tablename__))
+        """).format(mart=sql.Identifier(table_path.name))
 
         with psql_hook.get_conn() as conn:
             gdf_before = (
@@ -402,36 +403,33 @@ with DAG(
             t = pd.to_datetime(execution_date)
             for _, row in gdf[(gdf['time_from'] < t) & (gdf['time_to'] > t)][['id', 'time_from']].iterrows():
                 stmt = (
-                    delete(Path)
-                    .where(Path.id == row['id'])
-                    .where(Path.time_from == row['time_from'])
+                    delete(table_path)
+                    .where(table_path.c.id == row['id'])
+                    .where(table_path.c.time_from == row['time_from'])
                 )
                 conn.execute(stmt)
                 logging.info(f"Deleted for later upsert: {stmt}")
 
         # Load to PSQL
         # Maybe solve problem with old row with this: https://stackoverflow.com/a/63189754/4856719
-        gdf.to_sql(Path.__tablename__, engine, index=False, if_exists='append')
+        gdf.to_sql(table_path.name, engine, index=False, if_exists='append')
 
     # ################################################################################################################
     # SUBDAG: Marts
     # ################################################################################################################
 
-    class MartEdges(Base):
-        __tablename__ = 'shared_mobility_mart_edges'
-
-        id = Column(String, primary_key=True, index=True, nullable=False)
-        provider = Column(String, nullable=False)
-        time_from = Column(DateTime, primary_key=True, index=True, nullable=False)
-        time_to = Column(DateTime, nullable=False, index=True)
-        path_idx = Column(Integer, primary_key=True, nullable=False)
-        point = Column(Geometry('POINT'), nullable=False)
-        point_before = Column(Geometry('POINT'), nullable=True)
-        distance_m = Column(Float, nullable=True)
-
-        __table_args__ = (
-            Index('idx_time_from_to', 'time_from', 'time_to'),
-        )
+    table_mart_edges = Table(
+        'shared_mobility_mart_edges', meta,
+        Column('id', String, primary_key=True, index=True, nullable=False),
+        Column('provider', String, nullable=False),
+        Column('time_from', DateTime, primary_key=True, index=True, nullable=False),
+        Column('time_to', DateTime, nullable=False, index=True),
+        Column('path_idx', Integer, primary_key=True, nullable=False),
+        Column('point', Geometry('POINT'), nullable=False),
+        Column('point_before', Geometry('POINT'), nullable=True),
+        Column('distance_m', Float, nullable=True),
+    )
+    Index('idx_time_from_to', table_mart_edges.c.time_from, table_mart_edges.c.time_to)
 
     @task(task_id='mart_edges')
     def mart_edges(target_conn_id: str):
@@ -471,8 +469,8 @@ with DAG(
                 , point_before = EXCLUDED.point_before
                 , distance_m = EXCLUDED.distance_m;
         """).format(
-            source=sql.Identifier(Path.__tablename__),
-            mart=sql.Identifier(MartEdges.__tablename__),
+            source=sql.Identifier(table_path.name),
+            mart=sql.Identifier(table_mart_edges.name),
         )
         with PostgresHook(target_conn_id).get_conn() as conn:
             cur = conn.cursor()
@@ -484,17 +482,16 @@ with DAG(
             )
             logging.log(
                 logging.WARNING if (rows := cur.rowcount) == 0 else logging.INFO,
-                f'Table {MartEdges.__tablename__}: {rows} rows were affected.'
+                f'Table {table_mart_edges.name}: {rows} rows were affected.'
             )
             conn.commit()
 
-
-    class MartDistinctIds(Base):
-        __tablename__ = 'shared_mobility_mart_distinct_ids'
-
-        provider = Column(String, primary_key=True, nullable=False)
-        time = Column(DateTime, primary_key=True, index=True, nullable=False)
-        distinct_ids = Column(Integer, nullable=False)
+    table_mart_distinct_ids = Table(
+        'shared_mobility_mart_distinct_ids', meta,
+        Column('provider', String, primary_key=True, nullable=False),
+        Column('time', DateTime, primary_key=True, index=True, nullable=False),
+        Column('distinct_ids', Integer, nullable=False),
+    )
 
     @task(task_id='mart_distinct_ids')
     def mart_distinct_ids(target_conn_id: str):
@@ -515,8 +512,8 @@ with DAG(
             SET
                 distinct_ids = EXCLUDED.distinct_ids;
         """).format(
-            source=sql.Identifier(Path.__tablename__),
-            mart=sql.Identifier(MartDistinctIds.__tablename__),
+            source=sql.Identifier(table_path.name),
+            mart=sql.Identifier(table_mart_distinct_ids.name),
         )
         with PostgresHook(target_conn_id).get_conn() as conn:
             cur = conn.cursor()
@@ -528,20 +525,19 @@ with DAG(
             )
             logging.log(
                 logging.WARNING if (rows := cur.rowcount) == 0 else logging.INFO,
-                f'Table {MartDistinctIds.__tablename__}: {rows} rows were affected.'
+                f'Table {table_mart_distinct_ids.name}: {rows} rows were affected.'
             )
             conn.commit()
 
-
-    class MartTripDistance(Base):
-        __tablename__ = 'shared_mobility_mart_trip_distance'
-
-        id = Column(String, primary_key=True, index=True, nullable=False)
-        provider = Column(String, nullable=False)
-        trip_id = Column(String, primary_key=True, nullable=False)
-        trip_start = Column(DateTime, nullable=False)
-        trip_end = Column(DateTime, nullable=False)
-        trip_walk_distance_m = Column(Float, nullable=True)
+    table_mart_trip_distance = Table(
+        'shared_mobility_mart_trip_distance', meta,
+        Column('id', String, primary_key=True, index=True, nullable=False),
+        Column('provider', String, nullable=False),
+        Column('trip_id', String, primary_key=True, nullable=False),
+        Column('trip_start', DateTime, nullable=False),
+        Column('trip_end', DateTime, nullable=False),
+        Column('trip_walk_distance_m', Float, nullable=True),
+    )
 
     @task(task_id='mart_trip_distance')
     def mart_trip_distance(target_conn_id: str):
@@ -578,21 +574,20 @@ with DAG(
                 , trip_end = EXCLUDED.trip_end
                 , trip_walk_distance_m = EXCLUDED.trip_walk_distance_m;
         """).format(
-            source=sql.Identifier(Path.__tablename__),
-            mart=sql.Identifier(MartTripDistance.__tablename__),
+            source=sql.Identifier(table_path.name),
+            mart=sql.Identifier(table_mart_trip_distance.name),
         )
         with PostgresHook(target_conn_id).get_conn() as conn:
             cur = conn.cursor()
             cur.execute(query)
             conn.commit()
 
-
-    class MartScooterAge(Base):
-        __tablename__ = 'shared_mobility_mart_scooter_age'
-
-        time = Column(DateTime, primary_key=True, nullable=False)
-        provider = Column(String, primary_key=True, nullable=False)
-        avg_age_days_scooter = Column(Float, nullable=False)
+    table_mart_scooter_age = Table(
+        'shared_mobility_mart_scooter_age', meta,
+        Column('time', DateTime, primary_key=True, nullable=False),
+        Column('provider', String, primary_key=True, nullable=False),
+        Column('avg_age_days_scooter', Float, nullable=False),
+    )
 
     @task(task_id='mart_scooter_age')
     def mart_scooter_age(target_conn_id: str):
@@ -640,8 +635,8 @@ with DAG(
             GROUP BY time, provider
             ORDER BY time
         """).format(
-            source=sql.Identifier(Path.__tablename__),
-            mart=sql.Identifier(MartScooterAge.__tablename__),
+            source=sql.Identifier(table_path.name),
+            mart=sql.Identifier(table_mart_scooter_age.name),
         )
         with PostgresHook(target_conn_id).get_conn() as conn:
             cur = conn.cursor()
@@ -655,7 +650,7 @@ with DAG(
             )
             logging.log(
                 logging.WARNING if (rows := cur.rowcount) == 0 else logging.INFO,
-                f'Table {MartScooterAge.__tablename__}: {rows} rows were affected.'
+                f'Table {table_mart_scooter_age.name}: {rows} rows were affected.'
             )
             conn.commit()
 
@@ -677,7 +672,7 @@ with DAG(
     DUPLICATE_CONN_IDS = (PSQL_CONN_ID, PSQL_PUBLIC_CONN_ID)
 
     t_assert_path = CheckOrCreatePostgresTableOperator.partial(
-        declarative_base=Base, table_name=Path.__tablename__,
+        meta=meta, table_name=table_path.name,
         task_id='path_assert_table'
     ).expand(target_conn_id=DUPLICATE_CONN_IDS)
     t_assert_path.set_upstream(t_begin_assert_table)
@@ -685,7 +680,7 @@ with DAG(
     t_etl_path.set_upstream(t_assert_path)
 
     t_assert_provider = CheckOrCreatePostgresTableOperator.partial(
-        declarative_base=Base, table_name=Provider.__tablename__,
+        meta=meta, table_name=table_provider.name,
         task_id='provider_assert_table'
     ).expand(target_conn_id=DUPLICATE_CONN_IDS)
     t_assert_provider.set_upstream(t_begin_assert_table)
@@ -699,7 +694,7 @@ with DAG(
     t_begin_calculate_marts.set_upstream(t_end_assert_table)
 
     t_assert_table_mart_edges = CheckOrCreatePostgresTableOperator.partial(
-        declarative_base=Base, table_name=MartEdges.__tablename__,
+        meta=meta, table_name=table_mart_edges.name,
         task_id='assert_table_mart_edges'
     ).expand(target_conn_id=DUPLICATE_CONN_IDS)
     t_assert_table_mart_edges.set_upstream(t_begin_calculate_marts)
@@ -707,7 +702,7 @@ with DAG(
     t_mart_edges.set_upstream(t_assert_table_mart_edges)
 
     t_assert_table_mart_distinct_ids = CheckOrCreatePostgresTableOperator.partial(
-        declarative_base=Base, table_name=MartDistinctIds.__tablename__,
+        meta=meta, table_name=table_mart_distinct_ids.name,
         task_id='assert_table_mart_distinct_ids'
     ).expand(target_conn_id=DUPLICATE_CONN_IDS)
     t_assert_table_mart_distinct_ids.set_upstream(t_begin_calculate_marts)
@@ -715,7 +710,7 @@ with DAG(
     t_mart_distinct_ids.set_upstream(t_assert_table_mart_distinct_ids)
 
     t_assert_table_mart_trip_distance = CheckOrCreatePostgresTableOperator.partial(
-        declarative_base=Base, table_name=MartTripDistance.__tablename__,
+        meta=meta, table_name=table_mart_distinct_ids.name,
         task_id='assert_table_mart_trip_distance'
     ).expand(target_conn_id=DUPLICATE_CONN_IDS)
     t_assert_table_mart_trip_distance.set_upstream(t_begin_calculate_marts)
@@ -723,7 +718,7 @@ with DAG(
     t_mart_trip_distance.set_upstream(t_assert_table_mart_trip_distance)
 
     t_assert_table_mart_scooter_age = CheckOrCreatePostgresTableOperator.partial(
-        declarative_base=Base, table_name=MartScooterAge.__tablename__,
+        meta=meta, table_name=table_mart_scooter_age.name,
         task_id='assert_table_mart_scooter_age'
     ).expand(target_conn_id=DUPLICATE_CONN_IDS)
     t_assert_table_mart_scooter_age.set_upstream(t_begin_calculate_marts)
