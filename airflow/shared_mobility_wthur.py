@@ -324,10 +324,10 @@ with DAG(
             .assign(_nearest_node_bike_before=lambda x: x.groupby('id')['_nearest_node_bike'].shift())
             .assign(_nearest_node_bike_before=lambda x: x['_nearest_node_bike_before'].combine_first(x['_nearest_node_bike']))
             .assign(path_walk_since_last=lambda x:
-                ox.distance.shortest_path(graph_walk, x['_nearest_node_walk_before'], x['_nearest_node_walk'], cpus=None)
+                ox.distance.shortest_path(graph_walk, x['_nearest_node_walk_before'], x['_nearest_node_walk'], cpus=1)
             )
             .assign(path_bike_since_last=lambda x:
-                ox.distance.shortest_path(graph_bike, x['_nearest_node_bike_before'], x['_nearest_node_bike'], cpus=None)
+                ox.distance.shortest_path(graph_bike, x['_nearest_node_bike_before'], x['_nearest_node_bike'], cpus=1)
             )
 
             # Replace paths with only one node
