@@ -710,7 +710,7 @@ with DAG(
     t_mart_distinct_ids.set_upstream(t_assert_table_mart_distinct_ids)
 
     t_assert_table_mart_trip_distance = CheckOrCreatePostgresTableOperator.partial(
-        meta=meta, table_name=table_mart_distinct_ids.name,
+        meta=meta, table_name=table_mart_trip_distance.name,
         task_id='assert_table_mart_trip_distance'
     ).expand(target_conn_id=DUPLICATE_CONN_IDS)
     t_assert_table_mart_trip_distance.set_upstream(t_begin_calculate_marts)
