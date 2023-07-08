@@ -324,10 +324,10 @@ with DAG(
             .assign(_nearest_node_bike_before=lambda x: x.groupby('id')['_nearest_node_bike'].shift())
             .assign(_nearest_node_bike_before=lambda x: x['_nearest_node_bike_before'].combine_first(x['_nearest_node_bike']))
             .assign(path_walk_since_last=lambda x:
-                ox.distance.shortest_path(graph_walk, x['_nearest_node_walk_before'], x['_nearest_node_walk'], cpus=None)
+                ox.distance.shortest_path(graph_walk, x['_nearest_node_walk_before'], x['_nearest_node_walk'], cpus=1)
             )
             .assign(path_bike_since_last=lambda x:
-                ox.distance.shortest_path(graph_bike, x['_nearest_node_bike_before'], x['_nearest_node_bike'], cpus=None)
+                ox.distance.shortest_path(graph_bike, x['_nearest_node_bike_before'], x['_nearest_node_bike'], cpus=1)
             )
 
             # Replace paths with only one node
@@ -666,7 +666,6 @@ with DAG(
     t_begin_assert_table = DummyOperator(
         task_id='begin_assert_table',
         depends_on_past=True,
-        wait_for_downstream=True,
     )
 
     DUPLICATE_CONN_IDS = (PSQL_CONN_ID, PSQL_PUBLIC_CONN_ID)
@@ -710,7 +709,7 @@ with DAG(
     t_mart_distinct_ids.set_upstream(t_assert_table_mart_distinct_ids)
 
     t_assert_table_mart_trip_distance = CheckOrCreatePostgresTableOperator.partial(
-        meta=meta, table_name=table_mart_distinct_ids.name,
+        meta=meta, table_name=table_mart_trip_distance.name,
         task_id='assert_table_mart_trip_distance'
     ).expand(target_conn_id=DUPLICATE_CONN_IDS)
     t_assert_table_mart_trip_distance.set_upstream(t_begin_calculate_marts)
