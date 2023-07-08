@@ -666,7 +666,6 @@ with DAG(
     t_begin_assert_table = DummyOperator(
         task_id='begin_assert_table',
         depends_on_past=True,
-        wait_for_downstream=True,
     )
 
     DUPLICATE_CONN_IDS = (PSQL_CONN_ID, PSQL_PUBLIC_CONN_ID)
