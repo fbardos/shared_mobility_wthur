@@ -172,7 +172,12 @@ with DAG(
         # Load to PSQL
         psql_hook = PostgresHook(target_conn_id)
         engine = psql_hook.get_sqlalchemy_engine()
-        df.to_sql(table_provider.name, engine, index=False, if_exists='append')
+        with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
+            rows = df.to_sql(table_provider.name, conn, index=False, if_exists='append')
+            logging.log(
+                logging.WARNING if (rows := rows) is None else logging.INFO,
+                f'Table {table_mart_edges.name}: {rows} rows were affected.'
+            )
 
     # ################################################################################################################
     # SUBDAG: PATH
@@ -412,7 +417,12 @@ with DAG(
 
         # Load to PSQL
         # Maybe solve problem with old row with this: https://stackoverflow.com/a/63189754/4856719
-        gdf.to_sql(table_path.name, engine, index=False, if_exists='append')
+        with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
+            rows = gdf.to_sql(table_path.name, conn, index=False, if_exists='append')
+            logging.log(
+                logging.WARNING if (rows := rows) is None else logging.INFO,
+                f'Table {table_mart_edges.name}: {rows} rows were affected.'
+            )
 
     # ################################################################################################################
     # SUBDAG: Marts
