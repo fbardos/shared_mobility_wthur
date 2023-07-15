@@ -30,6 +30,7 @@ import geopandas as gpd
 import numpy as np
 import osmnx as ox
 import pandas as pd
+from dataclasses import dataclass
 from dateutil import tz
 from geoalchemy2 import Geometry
 from great_expectations.dataset import PandasDataset
@@ -37,14 +38,79 @@ from psycopg2 import sql
 from shapely.geometry import LineString, Point
 from sqlalchemy import (Boolean, Column, DateTime, Float, Index, Integer,
                         MetaData, String, Table, delete)
+from typing import Tuple
 
 from airflow import DAG
 from airflow.decorators import task
+from airflow.exceptions import AirflowSkipException
 from airflow.models import BaseOperator
 from airflow.operators.dummy import DummyOperator
 from airflow.operators.python import get_current_context
 from airflow.providers.mongo.hooks.mongo import MongoHook
 from airflow.providers.postgres.hooks.postgres import PostgresHook
+
+
+# Cannot use sqlalchemy.orm.declarative_base() in the airflow context.
+# Otherwise, the same MetaData object as for the metadatabase of airflow is used.
+# This creates many conflicts during DagBag filling.
+meta = MetaData()
+
+table_path = Table(
+   'shared_mobility_path', meta,
+   Column('id', String, primary_key=True, nullable=False),
+   Column('provider', String, nullable=False),
+   Column('point', Geometry('POINT'), nullable=False),
+   Column('time_from', DateTime, primary_key=True, nullable=False),
+   Column('time_to', DateTime, nullable=False),
+   Column('distance_m', Float, nullable=False),
+   Column('moving', Boolean, nullable=False),
+   Column('distance_m_walk', Float, nullable=True),
+   Column('path_walk_since_last', Geometry('LINESTRING'), nullable=True),
+   Column('distance_m_bike', Float, nullable=True),
+   Column('path_bike_since_last', Geometry('LINESTRING'), nullable=True),
+
+)
+
+table_provider = Table(
+    'shared_mobility_provider', meta,
+    Column('time', DateTime, primary_key=True, nullable=False),
+    Column('provider', String, primary_key=True, nullable=False),
+    Column('count_datapoints', Integer, nullable=False),
+    Column('count_distinct_ids', Integer, nullable=False),
+    Column('avg_delta_updated', Float, nullable=False),
+    Column('count_available', Integer, nullable=False),
+    Column('count_disabled', Integer, nullable=False),
+    Column('count_reserved', Integer, nullable=False),
+)
+
+
+@dataclass
+class SharedMobilityConnectionStrings:
+    """ Dataclass for connection strings and config.
+
+    Args:
+        - conn_id_private: Airflow connection string for private PostGIS.
+        - conn_id_public: Airflow connection string for public PostGIS.
+        - keep_public_days: Amount of days for scooter data is kept in public PostGIS.
+
+    """
+    conn_id_private: str
+    conn_id_public: str
+    keep_public_days: int
+
+    @property
+    def conn_ids(self) -> Tuple[str, str]:
+        "Returns first the private, then the public Airflow connection ID."
+        return self.conn_id_private, self.conn_id_public
+
+    def delete_from(self, execution_date: dt.datetime) -> dt.datetime:
+        return execution_date - dt.timedelta(days=self.keep_public_days)
+
+    def is_delete(self, context, conn_id: str) -> bool:
+        if conn_id == self.conn_id_private:
+            return False
+        else:
+            return True
 
 
 class CheckOrCreatePostgresTableOperator(BaseOperator):
@@ -57,13 +123,80 @@ class CheckOrCreatePostgresTableOperator(BaseOperator):
 
     # def execute(self, context, target_conn_id: str):
     def execute(self, context):
-        hook = PostgresHook(self._target_conn_id)
-        engine = hook.get_sqlalchemy_engine()
+        engine = PostgresHook(self._target_conn_id).get_sqlalchemy_engine()
 
         # If table is not existent, create table
         with engine.connect() as conn:
             if not engine.dialect.has_table(conn, self._table_name):
                 self._meta.tables[self._table_name].create(engine)
+
+
+class AssertPathRowsExecutionDate(BaseOperator):
+
+    def __init__(self, target_conn_id: str, **kwargs):
+            super().__init__(**kwargs)
+            self._target_conn_id = target_conn_id
+
+    def execute(self, context):
+        execution_date = context.get('execution_date')
+        conn = PostgresHook(self._target_conn_id).get_conn()
+        query = (sql.
+            SQL("SELECT id from {source} where time_to::date = %(execution_date)s::date ")
+            .format(source=sql.Identifier(table_path.name))
+        )
+        try:
+            cur = conn.cursor()
+            cur.execute(query, dict(execution_date=execution_date))
+            if (rows := cur.rowcount) == 0:
+                raise Exception(f'Expected rows for path table >0 for a given execution_date. Rows: {rows}')
+            else:
+                logging.info(f'Found rows for the given execution_date in table rows: {rows}')
+        finally:
+            conn.close()
+
+
+class DeleteOldRows(BaseOperator):
+
+    def __init__(
+        self,
+        config: SharedMobilityConnectionStrings,
+        target_conn_id: str,
+        table_name: str,
+        column_name: str,
+        **kwargs
+    ):
+            super().__init__(**kwargs)
+            self._config = config
+            self._target_conn_id = target_conn_id
+            self._table_name = table_name
+            self._column_name = column_name
+
+    def execute(self, context):
+        if self._config.is_delete(context, self._target_conn_id):
+            execution_date = context.get('execution_date')
+            if execution_date is None:
+                raise ValueError('Airflow execution_date mus be set.')
+            delete_from = self._config.delete_from(execution_date)
+            conn = PostgresHook(self._target_conn_id).get_conn()
+            query = (sql.
+                SQL("DELETE FROM {table} where {column}::date < %(delete_from)s::date ")
+                .format(
+                    table=sql.Identifier(self._table_name),
+                    column=sql.Identifier(self._column_name),
+                )
+            )
+            try:
+                cur = conn.cursor()
+                cur.execute(query, dict(delete_from=delete_from))
+                logging.log(
+                    logging.ERROR if (rows := cur.rowcount) == 0 else logging.INFO,
+                    f'Table {self._table_name}: {rows} rows were affected.'
+                )
+            finally:
+                conn.close()
+        else:
+            raise AirflowSkipException
+
 
 
 with DAG(
@@ -85,38 +218,15 @@ with DAG(
     PSQL_PUBLIC_CONN_ID = 'psql_public'
     MONGO_CONN_ID = 'mongo_opendata'
 
-    # Cannot use sqlalchemy.orm.declarative_base() in the airflow context.
-    # Otherwise, the same MetaData object as for the metadatabase of airflow is used.
-    # This creates many conflicts during DagBag filling.
-    meta = MetaData()
+    # DUPLICATE_CONN_IDS = (PSQL_CONN_ID, PSQL_PUBLIC_CONN_ID)
 
-    table_path = Table(
-       'shared_mobility_path', meta,
-       Column('id', String, primary_key=True, nullable=False),
-       Column('provider', String, nullable=False),
-       Column('point', Geometry('POINT'), nullable=False),
-       Column('time_from', DateTime, primary_key=True, nullable=False),
-       Column('time_to', DateTime, nullable=False),
-       Column('distance_m', Float, nullable=False),
-       Column('moving', Boolean, nullable=False),
-       Column('distance_m_walk', Float, nullable=True),
-       Column('path_walk_since_last', Geometry('LINESTRING'), nullable=True),
-       Column('distance_m_bike', Float, nullable=True),
-       Column('path_bike_since_last', Geometry('LINESTRING'), nullable=True),
-
+    CONFIG = SharedMobilityConnectionStrings(
+        conn_id_private='psql_marts',
+        conn_id_public='psql_public',
+        keep_public_days=90,
     )
 
-    table_provider = Table(
-        'shared_mobility_provider', meta,
-        Column('time', DateTime, primary_key=True, nullable=False),
-        Column('provider', String, primary_key=True, nullable=False),
-        Column('count_datapoints', Integer, nullable=False),
-        Column('count_distinct_ids', Integer, nullable=False),
-        Column('avg_delta_updated', Float, nullable=False),
-        Column('count_available', Integer, nullable=False),
-        Column('count_disabled', Integer, nullable=False),
-        Column('count_reserved', Integer, nullable=False),
-    )
+
 
     # ################################################################################################################
     # SUBDAG: Provider
@@ -172,7 +282,8 @@ with DAG(
         # Load to PSQL
         psql_hook = PostgresHook(target_conn_id)
         engine = psql_hook.get_sqlalchemy_engine()
-        with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
+        # with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
+        with engine.begin() as conn:
             rows = df.to_sql(table_provider.name, conn, index=False, if_exists='append')
             logging.log(
                 logging.WARNING if (rows := rows) is None else logging.INFO,
@@ -223,7 +334,6 @@ with DAG(
         # Extract data from MongoDB result set
         logging.info('Transform datapoints')
         df = (df
-            # .assign(id=lambda x: x['properties'].apply(lambda y: y['id']))
             .assign(provider=lambda x: x['properties'].apply(lambda y: y['provider']['name']))
             .assign(time=lambda x: x['_meta_last_updated_utc'])
             .assign(point_x=lambda x: x['geometry'].apply(lambda y: y['coordinates'][0]))
@@ -415,14 +525,14 @@ with DAG(
                 conn.execute(stmt)
                 logging.info(f"Deleted for later upsert: {stmt}")
 
-        # Load to PSQL
-        # Maybe solve problem with old row with this: https://stackoverflow.com/a/63189754/4856719
-        with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
+        # When using engine.begin() transaction will automatically be commited when exiting block
+        with engine.begin() as conn:
             rows = gdf.to_sql(table_path.name, conn, index=False, if_exists='append')
             logging.log(
-                logging.WARNING if (rows := rows) is None else logging.INFO,
-                f'Table {table_mart_edges.name}: {rows} rows were affected.'
+              logging.WARNING if (rows := rows) is None else logging.INFO,
+              f'Table {table_mart_edges.name}: {rows} rows were affected.'
             )
+
 
     # ################################################################################################################
     # SUBDAG: Marts
@@ -468,7 +578,7 @@ with DAG(
                         (ST_DumpPoints(path_walk_since_last)).*
                     FROM {source}
                     WHERE
-                        time_to::date = %(execution_date)s
+                        time_to::date = %(execution_date)s::date
                 ) t
             )t2
             ON CONFLICT (id, time_from, path_idx) DO UPDATE
@@ -482,19 +592,17 @@ with DAG(
             source=sql.Identifier(table_path.name),
             mart=sql.Identifier(table_mart_edges.name),
         )
-        with PostgresHook(target_conn_id).get_conn() as conn:
+        conn = PostgresHook(target_conn_id).get_conn()
+        try:
             cur = conn.cursor()
-            cur.execute(
-                query,
-                {
-                    'execution_date': execution_date,
-                }
-            )
+            cur.execute(query, dict(execution_date=execution_date))
             logging.log(
                 logging.WARNING if (rows := cur.rowcount) == 0 else logging.INFO,
                 f'Table {table_mart_edges.name}: {rows} rows were affected.'
             )
             conn.commit()
+        finally:
+            conn.close()
 
     table_mart_distinct_ids = Table(
         'shared_mobility_mart_distinct_ids', meta,
@@ -513,10 +621,10 @@ with DAG(
             SELECT
                 provider
                 , date_trunc('day', time_from) as time
-	            , COUNT(DISTINCT id) distinct_ids
+                , COUNT(DISTINCT id) distinct_ids
             FROM {source}
             WHERE
-                time_to::date = %(execution_date)s
+                date_trunc('day', time_from) = %(execution_date)s::date
             GROUP BY provider, time
             ON CONFLICT (provider, time) DO UPDATE
             SET
@@ -525,19 +633,17 @@ with DAG(
             source=sql.Identifier(table_path.name),
             mart=sql.Identifier(table_mart_distinct_ids.name),
         )
-        with PostgresHook(target_conn_id).get_conn() as conn:
+        conn = PostgresHook(target_conn_id).get_conn()
+        try:
             cur = conn.cursor()
-            cur.execute(
-                query,
-                {
-                    'execution_date': execution_date,
-                }
-            )
+            cur.execute(query, dict(execution_date=execution_date))
             logging.log(
                 logging.WARNING if (rows := cur.rowcount) == 0 else logging.INFO,
                 f'Table {table_mart_distinct_ids.name}: {rows} rows were affected.'
             )
             conn.commit()
+        finally:
+            conn.close()
 
     table_mart_trip_distance = Table(
         'shared_mobility_mart_trip_distance', meta,
@@ -587,10 +693,17 @@ with DAG(
             source=sql.Identifier(table_path.name),
             mart=sql.Identifier(table_mart_trip_distance.name),
         )
-        with PostgresHook(target_conn_id).get_conn() as conn:
+        conn = PostgresHook(target_conn_id).get_conn()
+        try:
             cur = conn.cursor()
             cur.execute(query)
+            logging.log(
+                logging.WARNING if (rows := cur.rowcount) == 0 else logging.INFO,
+                f'Table {table_mart_trip_distance.name}: {rows} rows were affected.'
+            )
             conn.commit()
+        finally:
+            conn.close()
 
     table_mart_scooter_age = Table(
         'shared_mobility_mart_scooter_age', meta,
@@ -641,28 +754,24 @@ with DAG(
                     date_trunc('hour', day) between t.min_time and t.max_time
             ) t2
             WHERE
-                time::date = %(execution_date)s
+                time::date = %(execution_date)s::date
             GROUP BY time, provider
             ORDER BY time
         """).format(
             source=sql.Identifier(table_path.name),
             mart=sql.Identifier(table_mart_scooter_age.name),
         )
-        with PostgresHook(target_conn_id).get_conn() as conn:
+        conn = PostgresHook(target_conn_id).get_conn()
+        try:
             cur = conn.cursor()
-            cur.execute(
-                query,
-                {
-                    'start': start,
-                    'end': end,
-                    'execution_date': execution_date,
-                }
-            )
+            cur.execute(query, dict(start=start, end=end, execution_date=execution_date))
             logging.log(
                 logging.WARNING if (rows := cur.rowcount) == 0 else logging.INFO,
                 f'Table {table_mart_scooter_age.name}: {rows} rows were affected.'
             )
             conn.commit()
+        finally:
+            conn.close()
 
 
     # TODO: Maybe add GreatExpectation tests for data marts
@@ -678,59 +787,113 @@ with DAG(
         depends_on_past=True,
     )
 
-    DUPLICATE_CONN_IDS = (PSQL_CONN_ID, PSQL_PUBLIC_CONN_ID)
-
     t_assert_path = CheckOrCreatePostgresTableOperator.partial(
         meta=meta, table_name=table_path.name,
         task_id='path_assert_table'
-    ).expand(target_conn_id=DUPLICATE_CONN_IDS)
+    ).expand(target_conn_id=CONFIG.conn_ids)
     t_assert_path.set_upstream(t_begin_assert_table)
-    t_etl_path = path_etl.expand(target_conn_id=DUPLICATE_CONN_IDS)
+    t_etl_path = path_etl.expand(target_conn_id=CONFIG.conn_ids)
     t_etl_path.set_upstream(t_assert_path)
+    t_delete_old_path = (
+        DeleteOldRows
+        .partial(task_id='delete_old_path', config=CONFIG, table_name=table_path.name, column_name=table_path.c.time_to.name)
+        .expand(target_conn_id=CONFIG.conn_ids)
+    )
+    t_delete_old_path.set_upstream(t_etl_path)
+
 
     t_assert_provider = CheckOrCreatePostgresTableOperator.partial(
         meta=meta, table_name=table_provider.name,
         task_id='provider_assert_table'
-    ).expand(target_conn_id=DUPLICATE_CONN_IDS)
+    ).expand(target_conn_id=CONFIG.conn_ids)
     t_assert_provider.set_upstream(t_begin_assert_table)
-    t_etl_provider = provider_etl.expand(target_conn_id=DUPLICATE_CONN_IDS)
+    t_etl_provider = provider_etl.expand(target_conn_id=CONFIG.conn_ids)
     t_etl_provider.set_upstream(t_assert_provider)
+    t_delete_old_provider = (
+        DeleteOldRows
+        .partial(task_id='delete_old_provider', config=CONFIG, table_name=table_provider.name, column_name=table_provider.c.time.name)
+        .expand(target_conn_id=CONFIG.conn_ids)
+    )
+    t_delete_old_provider.set_upstream(t_etl_provider)
 
-    t_end_assert_table = DummyOperator(task_id='end_assert_table')
-    t_end_assert_table.set_upstream([t_etl_path, t_etl_provider])
+    t_end_assert_table = DummyOperator(task_id='end_assert_table', trigger_rule='none_failed')
+    t_end_assert_table.set_upstream([t_delete_old_path, t_delete_old_provider])
+
+    t_count_rows = (
+        AssertPathRowsExecutionDate
+        .partial(task_id='assert_rows_in_path')
+        .expand(target_conn_id=CONFIG.conn_ids)
+    )
+    t_count_rows.set_upstream(t_end_assert_table)
 
     t_begin_calculate_marts = DummyOperator(task_id='begin_calculate_marts')
-    t_begin_calculate_marts.set_upstream(t_end_assert_table)
+    t_begin_calculate_marts.set_upstream(t_count_rows)
 
     t_assert_table_mart_edges = CheckOrCreatePostgresTableOperator.partial(
         meta=meta, table_name=table_mart_edges.name,
         task_id='assert_table_mart_edges'
-    ).expand(target_conn_id=DUPLICATE_CONN_IDS)
+    ).expand(target_conn_id=CONFIG.conn_ids)
     t_assert_table_mart_edges.set_upstream(t_begin_calculate_marts)
-    t_mart_edges = mart_edges.expand(target_conn_id=DUPLICATE_CONN_IDS)
+    t_mart_edges = mart_edges.expand(target_conn_id=CONFIG.conn_ids)
     t_mart_edges.set_upstream(t_assert_table_mart_edges)
+    t_delete_old_mart_edges = (
+        DeleteOldRows
+        .partial(
+            task_id='delete_old_mart_edges', config=CONFIG,
+            table_name=table_mart_edges.name, column_name=table_mart_edges.c.time_to.name,
+        )
+        .expand(target_conn_id=CONFIG.conn_ids)
+    )
+    t_delete_old_mart_edges.set_upstream(t_mart_edges)
 
     t_assert_table_mart_distinct_ids = CheckOrCreatePostgresTableOperator.partial(
         meta=meta, table_name=table_mart_distinct_ids.name,
         task_id='assert_table_mart_distinct_ids'
-    ).expand(target_conn_id=DUPLICATE_CONN_IDS)
+    ).expand(target_conn_id=CONFIG.conn_ids)
     t_assert_table_mart_distinct_ids.set_upstream(t_begin_calculate_marts)
-    t_mart_distinct_ids = mart_distinct_ids.expand(target_conn_id=DUPLICATE_CONN_IDS)
+    t_mart_distinct_ids = mart_distinct_ids.expand(target_conn_id=CONFIG.conn_ids)
     t_mart_distinct_ids.set_upstream(t_assert_table_mart_distinct_ids)
+    t_delete_old_mart_distinct_ids = (
+        DeleteOldRows
+        .partial(
+            task_id='delete_old_mart_distinct_ids', config=CONFIG,
+            table_name=table_mart_distinct_ids.name, column_name=table_mart_distinct_ids.c.time.name,
+        )
+        .expand(target_conn_id=CONFIG.conn_ids)
+    )
+    t_delete_old_mart_distinct_ids.set_upstream(t_mart_distinct_ids)
 
     t_assert_table_mart_trip_distance = CheckOrCreatePostgresTableOperator.partial(
         meta=meta, table_name=table_mart_trip_distance.name,
         task_id='assert_table_mart_trip_distance'
-    ).expand(target_conn_id=DUPLICATE_CONN_IDS)
+    ).expand(target_conn_id=CONFIG.conn_ids)
     t_assert_table_mart_trip_distance.set_upstream(t_begin_calculate_marts)
-    t_mart_trip_distance = mart_trip_distance.expand(target_conn_id=DUPLICATE_CONN_IDS)
+    t_mart_trip_distance = mart_trip_distance.expand(target_conn_id=CONFIG.conn_ids)
     t_mart_trip_distance.set_upstream(t_assert_table_mart_trip_distance)
+    t_delete_old_mart_trip_distance = (
+        DeleteOldRows
+        .partial(
+            task_id='delete_old_mart_trip_distance', config=CONFIG,
+            table_name=table_mart_trip_distance.name, column_name=table_mart_trip_distance.c.trip_end.name,
+        )
+        .expand(target_conn_id=CONFIG.conn_ids)
+    )
+    t_delete_old_mart_trip_distance.set_upstream(t_mart_trip_distance)
 
     t_assert_table_mart_scooter_age = CheckOrCreatePostgresTableOperator.partial(
         meta=meta, table_name=table_mart_scooter_age.name,
         task_id='assert_table_mart_scooter_age'
-    ).expand(target_conn_id=DUPLICATE_CONN_IDS)
+    ).expand(target_conn_id=CONFIG.conn_ids)
     t_assert_table_mart_scooter_age.set_upstream(t_begin_calculate_marts)
-    t_mart_scooter_age = mart_scooter_age.expand(target_conn_id=DUPLICATE_CONN_IDS)
+    t_mart_scooter_age = mart_scooter_age.expand(target_conn_id=CONFIG.conn_ids)
     t_mart_scooter_age.set_upstream(t_assert_table_mart_scooter_age)
+    t_delete_old_mart_scooter_age = (
+        DeleteOldRows
+        .partial(
+            task_id='delete_old_mart_scooter_age', config=CONFIG,
+            table_name=table_mart_scooter_age.name, column_name=table_mart_scooter_age.c.time.name,
+        )
+        .expand(target_conn_id=CONFIG.conn_ids)
+    )
+    t_delete_old_mart_scooter_age.set_upstream(t_mart_scooter_age)
 
