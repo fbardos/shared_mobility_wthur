@@ -357,7 +357,10 @@ with DAG(
                     mart.time_to,
                     mart.point
                 from {mart} mart
-                where time_to < %(execution_date)s
+                where
+                    time_to < %(execution_date)s
+                    -- PERFORMANCE: do not load paths which are older than 30 days.
+                    and time_to > %(execution_date)s - INTERVAL '30 days'
             ) x
             where
                 x.r <= 2
