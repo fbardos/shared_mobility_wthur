@@ -499,6 +499,7 @@ with DAG(
         gdf = gdf[gdf['time_to'] >= execution_date]
 
         # QA
+        logging.info('Starting with QA')
         dfqa = PandasDataset(gdf)
         assert dfqa.expect_column_values_to_not_be_null('id').success
         assert dfqa.expect_column_values_to_not_be_null('provider').success
@@ -526,6 +527,7 @@ with DAG(
                 logging.info(f"Deleted for later upsert: {stmt}")
 
         # When using engine.begin() transaction will automatically be commited when exiting block
+        logging.info('Fill the calculated path table.')
         with engine.begin() as conn:
             rows = gdf.to_sql(table_path.name, conn, index=False, if_exists='append')
             logging.log(
