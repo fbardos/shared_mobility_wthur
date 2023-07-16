@@ -58,10 +58,10 @@ meta = MetaData()
 table_path = Table(
    'shared_mobility_path', meta,
    Column('id', String, primary_key=True, nullable=False),
-   Column('provider', String, nullable=False),
+   Column('provider', String, nullable=False, index=True),
    Column('point', Geometry('POINT'), nullable=False),
-   Column('time_from', DateTime, primary_key=True, nullable=False),
-   Column('time_to', DateTime, nullable=False),
+   Column('time_from', DateTime, primary_key=True, nullable=False, index=True),
+   Column('time_to', DateTime, nullable=False, index=True),
    Column('distance_m', Float, nullable=False),
    Column('moving', Boolean, nullable=False),
    Column('distance_m_walk', Float, nullable=True),
