@@ -133,9 +133,10 @@ class CheckOrCreatePostgresTableOperator(BaseOperator):
 
 class AssertPathRowsExecutionDate(BaseOperator):
 
-    def __init__(self, target_conn_id: str, **kwargs):
+    def __init__(self, target_conn_id: str, fail_if_no_rows: bool = False, **kwargs):
             super().__init__(**kwargs)
             self._target_conn_id = target_conn_id
+            self._fail_if_no_rows = fail_if_no_rows
 
     def execute(self, context):
         execution_date = context.get('execution_date')
@@ -148,7 +149,11 @@ class AssertPathRowsExecutionDate(BaseOperator):
             cur = conn.cursor()
             cur.execute(query, dict(execution_date=execution_date))
             if (rows := cur.rowcount) == 0:
-                raise Exception(f'Expected rows for path table >0 for a given execution_date. Rows: {rows}')
+                msg = f'Expected rows for path table >0 for a given execution_date. Rows: {rows}'
+                if self._fail_if_no_rows:
+                    raise Exception(msg)
+                else:
+                    logging.warning(msg)
             else:
                 logging.info(f'Found rows for the given execution_date in table rows: {rows}')
         finally:
