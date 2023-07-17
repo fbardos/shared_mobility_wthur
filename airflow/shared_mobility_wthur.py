@@ -795,6 +795,7 @@ with DAG(
     t_begin_assert_table = DummyOperator(
         task_id='begin_assert_table',
         depends_on_past=True,
+        wait_for_downstream=True,
     )
 
     t_assert_path = CheckOrCreatePostgresTableOperator.partial(
