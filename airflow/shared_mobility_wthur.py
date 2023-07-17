@@ -238,7 +238,7 @@ with DAG(
     # ################################################################################################################
 
     # Task: Load from Mongo, build mart and write to Postgres
-    @task(task_id='provider_etl')
+    @task(task_id='provider_etl', retries=1, retry_delay=dt.timedelta(minutes=5))
     def provider_etl(target_conn_id: str):
         airflow_context = get_current_context()
         execution_date = airflow_context.get('execution_date')
@@ -300,7 +300,7 @@ with DAG(
     # ################################################################################################################
 
     # Task: Load from Mongo, build mart and write to Postgres
-    @task(task_id='path_etl')
+    @task(task_id='path_etl', retries=1, retry_delay=dt.timedelta(minutes=5))
     def path_etl(target_conn_id: str):
         airflow_context = get_current_context()
         execution_date = airflow_context.get('execution_date')
@@ -561,7 +561,7 @@ with DAG(
     )
     Index('idx_time_from_to', table_mart_edges.c.time_from, table_mart_edges.c.time_to)
 
-    @task(task_id='mart_edges')
+    @task(task_id='mart_edges', retries=1, retry_delay=dt.timedelta(minutes=5))
     def mart_edges(target_conn_id: str):
         airflow_context = get_current_context()
         execution_date = airflow_context.get('execution_date')
@@ -621,7 +621,7 @@ with DAG(
         Column('distinct_ids', Integer, nullable=False),
     )
 
-    @task(task_id='mart_distinct_ids')
+    @task(task_id='mart_distinct_ids', retries=1, retry_delay=dt.timedelta(minutes=5))
     def mart_distinct_ids(target_conn_id: str):
         airflow_context = get_current_context()
         execution_date = airflow_context.get('execution_date')
@@ -665,7 +665,7 @@ with DAG(
         Column('trip_walk_distance_m', Float, nullable=True),
     )
 
-    @task(task_id='mart_trip_distance')
+    @task(task_id='mart_trip_distance', retries=1, retry_delay=dt.timedelta(minutes=5))
     def mart_trip_distance(target_conn_id: str):
         query = sql.SQL("""
             INSERT INTO {mart}
@@ -722,7 +722,7 @@ with DAG(
         Column('avg_age_days_scooter', Float, nullable=False),
     )
 
-    @task(task_id='mart_scooter_age')
+    @task(task_id='mart_scooter_age', retries=1, retry_delay=dt.timedelta(minutes=5))
     def mart_scooter_age(target_conn_id: str):
         airflow_context = get_current_context()
 
