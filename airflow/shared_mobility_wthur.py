@@ -392,6 +392,14 @@ with DAG(
         # Merge the two tables
         gdf = pd.concat([gdf_before, gdf], ignore_index=True).set_geometry('geometry')
 
+        # After UNION, delete rows, where max(time_to) per scooter ID is lower than the current execution date.
+        # This means, that for this particular scooter, no path has to be recalculated again.
+        # Otherwise, the time consuming path calculation will be performed again.
+        begin_of_day = dt.datetime(execution_date.year, execution_date.month, execution_date.day, 0, 0, 0)
+        gdf['_time_max_scooter'] = gdf.groupby('id')['time'].transform('max')
+        gdf = gdf[gdf['_time_max_scooter'] > begin_of_day]
+        gdf.drop('_time_max_scooter', axis=1, inplace=True)
+
         # First transformation
         gdf = (gdf
             .set_crs(epsg=4326)
