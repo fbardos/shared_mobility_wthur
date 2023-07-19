@@ -46,6 +46,7 @@ from airflow.exceptions import AirflowSkipException
 from airflow.models import BaseOperator
 from airflow.operators.dummy import DummyOperator
 from airflow.operators.python import get_current_context
+from airflow.utils.context import Context
 from airflow.providers.mongo.hooks.mongo import MongoHook
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 
@@ -82,6 +83,27 @@ table_provider = Table(
     Column('count_disabled', Integer, nullable=False),
     Column('count_reserved', Integer, nullable=False),
 )
+
+@dataclass
+class AirflowContextUtils:
+    context: Context
+
+    @property
+    def data_interval_start(self) -> dt.datetime:
+        """Returns dt.datetime with timezone UTC."""
+        time = self.context.get('data_interval_start')
+        assert isinstance(time, dt.datetime)
+        return time
+
+    @property
+    def data_interval_end(self) -> dt.datetime:
+        """In addition subtracts one microsecond from the original data_interval_end.
+
+        Returns dt.datetime with timezone UTC.
+        """
+        time = self.context.get('data_interval_end')
+        assert isinstance(time, dt.datetime)
+        return time - dt.timedelta(microseconds=1)
 
 
 @dataclass
@@ -207,7 +229,7 @@ class DeleteOldRows(BaseOperator):
 with DAG(
     dag_id='shared_mobility_wthur',
     schedule_interval='5 2 * * *',  # every day at 02:00
-    start_date=dt.datetime(2022, 10, 15),
+    start_date=dt.datetime(2022, 10, 16),
     max_active_runs=1,
     catchup=True,  # build for every day in the past
     tags=['mart', 'shared_mobility'],
@@ -240,18 +262,13 @@ with DAG(
     # Task: Load from Mongo, build mart and write to Postgres
     @task(task_id='provider_etl', retries=1, retry_delay=dt.timedelta(minutes=5))
     def provider_etl(target_conn_id: str):
-        airflow_context = get_current_context()
-        execution_date = airflow_context.get('execution_date')
-        assert isinstance(execution_date, dt.datetime)
-
+        context_utils = AirflowContextUtils(get_current_context())
         mongo_hook = MongoHook(MONGO_CONN_ID)
         with mongo_hook.get_conn() as client:
-            start = dt.datetime(execution_date.year, execution_date.month, execution_date.day, tzinfo=tz.tzutc())
-            end = dt.datetime(execution_date.year, execution_date.month, execution_date.day, 23, 59, 59, tzinfo=tz.tzutc())
             query = {
                 'geometry.coordinates.1': {'$gt': WTHUR_SOUTH, '$lt': WTHUR_NORTH},
                 'geometry.coordinates.0': {'$gt': WTHUR_WEST, '$lt': WTHUR_EAST},
-                '_meta_runtime_utc': {'$gt': start, '$lt': end},
+                '_meta_runtime_utc': {'$gt': context_utils.data_interval_start, '$lt': context_utils.data_interval_end},
             }
             db = client.opendata
             col = db.shared_mobility
@@ -302,9 +319,7 @@ with DAG(
     # Task: Load from Mongo, build mart and write to Postgres
     @task(task_id='path_etl', retries=1, retry_delay=dt.timedelta(minutes=5))
     def path_etl(target_conn_id: str):
-        airflow_context = get_current_context()
-        execution_date = airflow_context.get('execution_date')
-        assert isinstance(execution_date, dt.datetime)
+        context_utils = AirflowContextUtils(get_current_context())
 
         # Create PSQL engine
         psql_hook = PostgresHook(target_conn_id)
@@ -315,12 +330,11 @@ with DAG(
         logging.info('Load data from MongoDB')
         mongo_hook = MongoHook(MONGO_CONN_ID)
         with mongo_hook.get_conn() as client:
-            start = dt.datetime(execution_date.year, execution_date.month, execution_date.day, tzinfo=tz.tzutc())
-            end = dt.datetime(execution_date.year, execution_date.month, execution_date.day, 23, 59, 59, tzinfo=tz.tzutc())
             query = {
                 'geometry.coordinates.1': {'$gt': WTHUR_SOUTH, '$lt': WTHUR_NORTH},
                 'geometry.coordinates.0': {'$gt': WTHUR_WEST, '$lt': WTHUR_EAST},
-                '_meta_runtime_utc': {'$gt': start, '$lt': end},
+                # Datetime is stores as UTC
+                '_meta_runtime_utc': {'$gt': context_utils.data_interval_start, '$lt': context_utils.data_interval_end},
             }
             projection = {
                 '_id': 0,
@@ -376,7 +390,7 @@ with DAG(
                 gpd.GeoDataFrame.from_postgis(
                     sql=query.as_string(conn), con=engine, geom_col='point', parse_dates='time_to',
                     params={
-                        'execution_date': execution_date,
+                        'execution_date': context_utils.data_interval_end,
                     }
                 )
                 .rename(columns={'time_to': 'time', 'point': 'geometry'})
@@ -395,9 +409,8 @@ with DAG(
         # After UNION, delete rows, where max(time_to) per scooter ID is lower than the current execution date.
         # This means, that for this particular scooter, no path has to be recalculated again.
         # Otherwise, the time consuming path calculation will be performed again.
-        begin_of_day = dt.datetime(execution_date.year, execution_date.month, execution_date.day, 0, 0, 0)
         gdf['_time_max_scooter'] = gdf.groupby('id')['time'].transform('max')
-        gdf = gdf[gdf['_time_max_scooter'] > begin_of_day]
+        gdf = gdf[pd.to_datetime(gdf['_time_max_scooter'], utc=True) > context_utils.data_interval_start]
         gdf.drop('_time_max_scooter', axis=1, inplace=True)
 
         # First transformation
@@ -510,9 +523,8 @@ with DAG(
             .assign(path_bike_since_last=lambda x: x['path_bike_since_last'].to_crs(epsg=4326).to_wkt())
         )
 
-        # Keep only rows with the time_to in the current DAG execution date
-        # Also filters scooter IDs who are not in use anymore. These could be filtered earlier on.
-        gdf = gdf[gdf['time_to'] >= execution_date]
+        # Keep only rows with the time_to in the current DAG time interval
+        gdf = gdf[gdf['time_to'] >= context_utils.data_interval_start]
 
         # QA
         logging.info('Starting with QA')
@@ -532,8 +544,8 @@ with DAG(
         # Iterate over all rows. When time_from is before DAG execution date, then delete the
         # corresponding row in PSQL before inserting the updated one later.
         with engine.begin() as conn:
-            t = pd.to_datetime(execution_date)
-            for _, row in gdf[(gdf['time_from'] < t) & (gdf['time_to'] > t)][['id', 'time_from']].iterrows():
+            t_start = pd.to_datetime(context_utils.data_interval_start, utc=True)
+            for _, row in gdf[(gdf['time_from'] < t_start) & (gdf['time_to'] > t_start)][['id', 'time_from']].iterrows():
                 stmt = (
                     delete(table_path)
                     .where(table_path.c.id == row['id'])
@@ -571,8 +583,7 @@ with DAG(
 
     @task(task_id='mart_edges', retries=1, retry_delay=dt.timedelta(minutes=5))
     def mart_edges(target_conn_id: str):
-        airflow_context = get_current_context()
-        execution_date = airflow_context.get('execution_date')
+        context_utils = AirflowContextUtils(get_current_context())
         query = sql.SQL("""
             INSERT INTO {mart}
             SELECT
@@ -596,7 +607,7 @@ with DAG(
                         (ST_DumpPoints(path_walk_since_last)).*
                     FROM {source}
                     WHERE
-                        time_to::date = %(execution_date)s::date
+                        time_to BETWEEN %(t_start)s AND %(t_end)s
                 ) t
             )t2
             ON CONFLICT (id, time_from, path_idx) DO UPDATE
@@ -613,7 +624,7 @@ with DAG(
         conn = PostgresHook(target_conn_id).get_conn()
         try:
             cur = conn.cursor()
-            cur.execute(query, dict(execution_date=execution_date))
+            cur.execute(query, dict(t_start=context_utils.data_interval_start, t_end=context_utils.data_interval_end))
             logging.log(
                 logging.WARNING if (rows := cur.rowcount) == 0 else logging.INFO,
                 f'Table {table_mart_edges.name}: {rows} rows were affected.'
@@ -631,9 +642,7 @@ with DAG(
 
     @task(task_id='mart_distinct_ids', retries=1, retry_delay=dt.timedelta(minutes=5))
     def mart_distinct_ids(target_conn_id: str):
-        airflow_context = get_current_context()
-        execution_date = airflow_context.get('execution_date')
-
+        context_utils = AirflowContextUtils(get_current_context())
         query = sql.SQL("""
             INSERT INTO {mart}
             SELECT
@@ -642,7 +651,7 @@ with DAG(
                 , COUNT(DISTINCT id) distinct_ids
             FROM {source}
             WHERE
-                date_trunc('day', time_from) = %(execution_date)s::date
+                date_trunc('day', time_from) = %(t_start)s::date
             GROUP BY provider, time
             ON CONFLICT (provider, time) DO UPDATE
             SET
@@ -654,7 +663,7 @@ with DAG(
         conn = PostgresHook(target_conn_id).get_conn()
         try:
             cur = conn.cursor()
-            cur.execute(query, dict(execution_date=execution_date))
+            cur.execute(query, dict(t_start=context_utils.data_interval_start))
             logging.log(
                 logging.WARNING if (rows := cur.rowcount) == 0 else logging.INFO,
                 f'Table {table_mart_distinct_ids.name}: {rows} rows were affected.'
@@ -732,13 +741,7 @@ with DAG(
 
     @task(task_id='mart_scooter_age', retries=1, retry_delay=dt.timedelta(minutes=5))
     def mart_scooter_age(target_conn_id: str):
-        airflow_context = get_current_context()
-
-        # TODO: Not DRY
-        execution_date = airflow_context.get('execution_date')
-        start = dt.datetime(execution_date.year, execution_date.month, execution_date.day, tzinfo=tz.tzutc())
-        end = dt.datetime(execution_date.year, execution_date.month, execution_date.day, 23, 59, 59, tzinfo=tz.tzutc())
-
+        context_utils = AirflowContextUtils(get_current_context())
         query = sql.SQL("""
             INSERT INTO {mart}
             SELECT
@@ -761,10 +764,6 @@ with DAG(
                         , min(time_from) min_time
                         , max(time_to) max_time
                     FROM {source}
-                    -- This has to be disabled. Otherwise it will not get the whole range of scooters IDs.
-                    -- WHERE
-                    --     time_to >= %(start)s
-                    --     and time_from <= %(end)s
                     group by id, provider
                 ) t
                 CROSS JOIN generate_series(t.min_time + interval '1' hour, t.max_time, interval '1 hour') as g(day)
@@ -772,7 +771,7 @@ with DAG(
                     date_trunc('hour', day) between t.min_time and t.max_time
             ) t2
             WHERE
-                time::date = %(execution_date)s::date
+                time BETWEEN %(t_start)s AND %(t_end)s
             GROUP BY time, provider
             ORDER BY time
         """).format(
@@ -782,7 +781,7 @@ with DAG(
         conn = PostgresHook(target_conn_id).get_conn()
         try:
             cur = conn.cursor()
-            cur.execute(query, dict(start=start, end=end, execution_date=execution_date))
+            cur.execute(query, dict(t_start=context_utils.data_interval_start, t_end=context_utils.data_interval_end))
             logging.log(
                 logging.WARNING if (rows := cur.rowcount) == 0 else logging.INFO,
                 f'Table {table_mart_scooter_age.name}: {rows} rows were affected.'
