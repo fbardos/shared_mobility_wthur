@@ -684,6 +684,7 @@ with DAG(
 
     @task(task_id='mart_trip_distance', retries=1, retry_delay=dt.timedelta(minutes=5))
     def mart_trip_distance(target_conn_id: str):
+        context_utils = AirflowContextUtils(get_current_context())
         query = sql.SQL("""
             INSERT INTO {mart}
             select
@@ -710,6 +711,8 @@ with DAG(
                     FROM {source}
                 ) t
             ) t2
+            WHERE
+                t2.time_to BETWEEN %(t_start)s AND %(t_end)s
             group by provider, id, trip_id
             ON CONFLICT (id, trip_id) DO UPDATE
             SET
@@ -723,7 +726,7 @@ with DAG(
         conn = PostgresHook(target_conn_id).get_conn()
         try:
             cur = conn.cursor()
-            cur.execute(query)
+            cur.execute(query, dict(t_start=context_utils.data_interval_start, t_end=context_utils.data_interval_end))
             logging.log(
                 logging.WARNING if (rows := cur.rowcount) == 0 else logging.INFO,
                 f'Table {table_mart_trip_distance.name}: {rows} rows were affected.'
