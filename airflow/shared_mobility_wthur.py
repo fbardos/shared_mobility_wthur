@@ -420,7 +420,15 @@ with DAG(
         )
 
         # Merge the two tables
-        gdf = pd.concat([gdf_before, gdf], ignore_index=True).set_geometry('geometry')
+        # Then, sort the values. Otherwise, min(time) per scooter gets deleted
+        # when min(time) appears after anoter time for that scooter when calling
+        # pandas.DataFrame.drop_duplicates()
+        gdf = (
+            pd.concat([gdf_before, gdf], ignore_index=True)
+            .set_geometry('geometry')
+            .sort_values(['id', 'time'])
+            .reset_index(drop=True)
+        )
 
         # After UNION, delete rows, where max(time_to) per scooter ID is lower than the current execution date.
         # This means, that for this particular scooter, no path has to be recalculated again.
