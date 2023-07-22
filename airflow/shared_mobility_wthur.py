@@ -200,10 +200,8 @@ class DeleteOldRows(BaseOperator):
 
     def execute(self, context):
         if self._config.is_delete(context, self._target_conn_id):
-            execution_date = context.get('execution_date')
-            if execution_date is None:
-                raise ValueError('Airflow execution_date mus be set.')
-            delete_from = self._config.delete_from(execution_date)
+            context_utils = AirflowContextUtils(get_current_context())
+            delete_from = self._config.delete_from(context_utils.data_interval_start)
             conn = PostgresHook(self._target_conn_id).get_conn()
             query = (sql.
                 SQL("DELETE FROM {table} where {column}::date < %(delete_from)s::date ")
