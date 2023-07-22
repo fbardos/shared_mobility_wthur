@@ -393,9 +393,7 @@ with DAG(
                     mart.point
                 from {mart} mart
                 where
-                    time_to::date < %(execution_date)s::date
-                    -- PERFORMANCE: do not load paths which are older than 30 days.
-                    and time_to > %(execution_date)s - INTERVAL '30 days'
+                    time_to BETWEEN %(t_start)s - INTERVAL '30 days' AND %(t_start)s
             ) x
             where
                 x.r <= 2
@@ -406,7 +404,7 @@ with DAG(
                 gpd.GeoDataFrame.from_postgis(
                     sql=query.as_string(conn), con=engine, geom_col='point', parse_dates='time_to',
                     params={
-                        'execution_date': context_utils.data_interval_end,
+                        't_start': context_utils.data_interval_start,
                     }
                 )
                 .rename(columns={'time_to': 'time', 'point': 'geometry'})
