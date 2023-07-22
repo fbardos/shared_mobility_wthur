@@ -281,9 +281,24 @@ with DAG(
             .assign(provider=lambda x: x['properties'].apply(lambda y: y['provider']['name']))
             .assign(delta_updated=lambda x: x['_meta_runtime_utc'] - x['_meta_last_updated_utc'])
             .assign(id=lambda x: x['properties'].apply(lambda y: y['id']))
-            .assign(available=lambda x: x['properties'].apply(lambda y: y['available']))
-            .assign(disabled=lambda x: x['properties'].apply(lambda y: y.get('vehicle', {}).get('status', {}).get('disabled')))
-            .assign(reserved=lambda x: x['properties'].apply(lambda y: y.get('vehicle', {}).get('status', {}).get('reserved')))
+            .assign(available=lambda x: (
+                x['properties']
+                .apply(lambda y: y['available'])
+                .fillna(0)
+                .astype(int)
+            ))
+            .assign(disabled=lambda x: (
+                x['properties']
+                .apply(lambda y: y.get('vehicle', {}).get('status', {}).get('disabled'))
+                .fillna(0)
+                .astype(int)
+            ))
+            .assign(reserved=lambda x: (
+                x['properties']
+                .apply(lambda y: y.get('vehicle', {}).get('status', {}).get('reserved'))
+                .fillna(0)
+                .astype(int)
+            ))
             .groupby(['provider', pd.Grouper(key='_meta_runtime_utc', freq='2min')])
             .agg(
                 count_datapoints=('_meta_runtime_utc', 'size'),
