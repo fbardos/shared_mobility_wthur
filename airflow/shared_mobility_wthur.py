@@ -219,6 +219,7 @@ class DeleteOldRows(BaseOperator):
                     logging.ERROR if (rows := cur.rowcount) == 0 else logging.INFO,
                     f'Table {self._table_name}: {rows} rows were affected.'
                 )
+                conn.commit()
             finally:
                 conn.close()
         else:
@@ -250,7 +251,7 @@ with DAG(
     CONFIG = SharedMobilityConnectionStrings(
         conn_id_private='psql_marts',
         conn_id_public='psql_public',
-        keep_public_days=90,
+        keep_public_days=365,
     )
 
 
