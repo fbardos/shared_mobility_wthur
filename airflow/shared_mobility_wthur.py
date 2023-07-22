@@ -387,7 +387,7 @@ with DAG(
                     ROW_NUMBER() OVER (PARTITION BY id ORDER BY time_to desc) as r,
                     mart.id,
                     mart.provider,
-                    mart.time_to,
+                    mart.time_from,
                     mart.point
                 from {mart} mart
                 where
