@@ -164,7 +164,7 @@ class AssertPathRowsExecutionDate(BaseOperator):
         context_utils = AirflowContextUtils(get_current_context())
         conn = PostgresHook(self._target_conn_id).get_conn()
         query = (sql.
-            SQL("SELECT id from {source} where time_to BETWEEN %(t_start) and %(t_end)")
+            SQL("SELECT id from {source} where time_to BETWEEN %(t_start)s and %(t_end)s")
             .format(source=sql.Identifier(table_path.name))
         )
         try:
