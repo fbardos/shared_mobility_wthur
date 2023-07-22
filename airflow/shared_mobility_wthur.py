@@ -161,23 +161,23 @@ class AssertPathRowsExecutionDate(BaseOperator):
             self._fail_if_no_rows = fail_if_no_rows
 
     def execute(self, context):
-        execution_date = context.get('execution_date')
+        context_utils = AirflowContextUtils(get_current_context())
         conn = PostgresHook(self._target_conn_id).get_conn()
         query = (sql.
-            SQL("SELECT id from {source} where time_to::date = %(execution_date)s::date ")
+            SQL("SELECT id from {source} where time_to BETWEEN %(t_start) and %(t_end)")
             .format(source=sql.Identifier(table_path.name))
         )
         try:
             cur = conn.cursor()
-            cur.execute(query, dict(execution_date=execution_date))
+            cur.execute(query, dict(t_start=context_utils.data_interval_start, t_end=context_utils.data_interval_end))
             if (rows := cur.rowcount) == 0:
-                msg = f'Expected rows for path table >0 for a given execution_date. Rows: {rows}'
+                msg = f'Expected rows for path table >0 for a given time interval. Rows: {rows}'
                 if self._fail_if_no_rows:
                     raise Exception(msg)
                 else:
                     logging.warning(msg)
             else:
-                logging.info(f'Found rows for the given execution_date in table rows: {rows}')
+                logging.info(f'Found rows for the given time interval in table rows: {rows}')
         finally:
             conn.close()
 
