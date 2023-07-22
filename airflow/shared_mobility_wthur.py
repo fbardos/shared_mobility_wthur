@@ -386,7 +386,7 @@ with DAG(
             select *
                 from (
                 select
-                    ROW_NUMBER() OVER (PARTITION BY id, time_to ORDER BY time_to desc) as r,
+                    ROW_NUMBER() OVER (PARTITION BY id ORDER BY time_to desc) as r,
                     mart.id,
                     mart.provider,
                     mart.time_to,
