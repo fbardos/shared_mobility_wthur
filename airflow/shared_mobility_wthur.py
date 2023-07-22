@@ -436,11 +436,11 @@ with DAG(
             )
             .drop_duplicates(['id', 'time_from'])
             .assign(distance_m=lambda x: x['distance_m'].replace(np.nan, 0))
-            .drop(['time', '_geometry_before', '_has_moved', '_has_moved_cumsum'], axis=1)
 
             # Determine, if scooter is currently moving
-            .assign(moving=lambda x: np.where(x['time_from'] == x['time_to'], True, False))
+            .assign(moving=lambda x: np.where((x['time_from'] == x['time_to']) & (x['_has_moved'] == 1), True, False))
             .set_geometry('point_middle', drop=True, crs='EPSG:21781')
+            .drop(['time', '_geometry_before', '_has_moved', '_has_moved_cumsum'], axis=1)
         )
 
         # Calculate paths, on foot and on a bike.
@@ -526,6 +526,12 @@ with DAG(
 
         # Keep only rows with the time_to in the current DAG time interval
         gdf = gdf[gdf['time_to'] >= context_utils.data_interval_start]
+
+        # Filter out paths that did not move.
+        # These are scooters who did not move for the whole DAG run time interval
+        # These observations will contain empty values for columns:
+        #   path_walk_since_last, path_bike_since_last, distance_m_walk, distance_m_bike
+        gdf.dropna(inplace=True)
 
         # QA
         logging.info('Starting with QA')
