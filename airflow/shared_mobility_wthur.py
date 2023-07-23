@@ -633,7 +633,7 @@ with DAG(
                         (ST_DumpPoints(path_walk_since_last)).*
                     FROM {source}
                     WHERE
-                        time_to BETWEEN %(t_start)s AND %(t_end)s
+                        time_from BETWEEN %(t_start)s AND %(t_end)s
                 ) t
             )t2
             ON CONFLICT (id, time_from, path_idx) DO UPDATE
@@ -718,12 +718,12 @@ with DAG(
                 , provider
                 , trip_id
                 , min(time_from) as trip_start
-                , max(time_to) as trip_end
+                , max(time_from) as trip_end
                 , sum(distance_m_walk) as trip_walk_distance_m
             FROM (
                 SELECT
                     t.*
-                    , SUM(_count_up) OVER (PARTITION BY id ORDER BY time_to) trip_id
+                    , SUM(_count_up) OVER (PARTITION BY id ORDER BY time_from) trip_id
                 FROM (
                     SELECT
                         id
@@ -738,7 +738,7 @@ with DAG(
                 ) t
             ) t2
             WHERE
-                t2.time_to BETWEEN %(t_start)s AND %(t_end)s
+                t2.time_from BETWEEN %(t_start)s AND %(t_end)s
             group by provider, id, trip_id
             ON CONFLICT (id, trip_id) DO UPDATE
             SET
@@ -780,10 +780,6 @@ with DAG(
             from (
                 select
                     date_trunc('hour', day) as time
-                    -- , EXTRACT(EPOCH FROM CASE
-                    --     WHEN date_trunc('hour', day) > t.max_time THEN t.max_time - t.min_time
-                    --     ELSE date_trunc('hour', day) - t.min_time
-                    --   END) / 86400 as current_age_days
                     , EXTRACT(EPOCH FROM (date_trunc('hour', day) - t.min_time)) / 86400 as current_age_days
                     , provider
                 from (
