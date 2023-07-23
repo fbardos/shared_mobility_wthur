@@ -387,7 +387,7 @@ with DAG(
                     ROW_NUMBER() OVER (PARTITION BY id ORDER BY time_to desc) as r,
                     mart.id,
                     mart.provider,
-                    mart.time_from,
+                    mart.time_from as time,
                     mart.point
                 from {mart} mart
                 where
@@ -400,12 +400,12 @@ with DAG(
         with psql_hook.get_conn() as conn:
             gdf_before = (
                 gpd.GeoDataFrame.from_postgis(
-                    sql=query.as_string(conn), con=engine, geom_col='point', parse_dates='time_to',
+                    sql=query.as_string(conn), con=engine, geom_col='point', parse_dates='time',
                     params={
                         't_start': context_utils.data_interval_start,
                     }
                 )
-                .rename(columns={'time_to': 'time', 'point': 'geometry'})
+                .rename(columns={'point': 'geometry'})
                 .drop(['r'], axis=1)
             )
 
