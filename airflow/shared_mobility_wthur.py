@@ -419,6 +419,8 @@ with DAG(
         # Then, sort the values. Otherwise, min(time) per scooter gets deleted
         # when min(time) appears after anoter time for that scooter when calling
         # pandas.DataFrame.drop_duplicates()
+        logging.info(f'Size of table imported from MongoDB: {len(gdf.index)} rows.')
+        logging.info(f'Size of table imported from PSQL {table_path.name}: {len(gdf_before.index)} rows.')
         gdf = (
             pd.concat([gdf_before, gdf], ignore_index=True)
             .set_geometry('geometry')
