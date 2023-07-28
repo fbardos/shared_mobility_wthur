@@ -1,11 +1,11 @@
 # Shared Mobility Winterthur
 
-![E-Scooter Dashboard Winterthur](https://bardos.dev/images/dashboard_overview.png)
+![E-Scooter Dashboard Winterthur](dashboard_overview.png)
 
 This repo contains ETL workflows (Airflow DAGs), analysis (Jupyter Notebooks) and some documentation about the shared mobility API for E-Scooters.
 
 # Links
-* [Overview & Links to shared mobility dashboard(s)](dashboard_overview.png)
+* [Overview & Links to shared mobility dashboard(s)](https://bardos.dev/e-scooter-dashboard-overview.html)
 
 # References
 * [General Information](https://opendata.swiss/de/dataset/standorte-und-verfugbarkeit-von-shared-mobility-angeboten)
