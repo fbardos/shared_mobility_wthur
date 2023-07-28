@@ -1,5 +1,7 @@
 # Shared Mobility Winterthur
 
+![E-Scooter Dashboard Winterthur](https://bardos.dev/images/dashboard_overview.png)
+
 This repo contains ETL workflows (Airflow DAGs), analysis (Jupyter Notebooks) and some documentation about the shared mobility API for E-Scooters.
 
 # Links
@@ -19,10 +21,10 @@ This repo contains ETL workflows (Airflow DAGs), analysis (Jupyter Notebooks) an
 ## Limitations
 * When the data does not get updated regulary on API side, the calculation of routes maybe wrong the next time, the data gets updated.
 
-## Data transformation
+## Documentation Data transformation
 TODO
 
 ## Data Marts
 ETL is done using Apache Airflow. Data Marts are stored in PostgreSQL.
-General scope: Only calculated for the area of Winterthur, even if we have all the data for Switzerland. Maybe, I will rollout additional dashboars for all major cities in Switzerland.
+General scope: Only calculated for the area of Winterthur, even if we have all the data for Switzerland. On request, I can rollout additional dashboards for all major cities in Switzerland.
 
