@@ -5,7 +5,7 @@
 This repo contains ETL workflows (Airflow DAGs), analysis (Jupyter Notebooks) and some documentation about the shared mobility API for E-Scooters.
 
 # Links
-* [Overview & Links to shared mobility dashboard(s)](https://bardos.dev/e-scooter-dashboard-overview.html)
+* [Overview & Links to shared mobility dashboard(s)](dashboard_overview.png)
 
 # References
 * [General Information](https://opendata.swiss/de/dataset/standorte-und-verfugbarkeit-von-shared-mobility-angeboten)
