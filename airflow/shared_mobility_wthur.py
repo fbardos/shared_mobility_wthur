@@ -240,18 +240,12 @@ with DAG(
     WTHUR_WEST = 8.687158
     WTHUR_EAST = 8.784503
     POS_CHANGE_WHEN_BIGGER_THAN_METER = 50
-    PSQL_CONN_ID = 'psql_marts'
-    PSQL_PUBLIC_CONN_ID = 'psql_public'
     MONGO_CONN_ID = 'mongo_opendata'
-
-    # DUPLICATE_CONN_IDS = (PSQL_CONN_ID, PSQL_PUBLIC_CONN_ID)
-
     CONFIG = SharedMobilityConnectionStrings(
         conn_id_private='psql_marts',
         conn_id_public='psql_public',
         keep_public_days=365,
     )
-
 
 
     # ################################################################################################################
