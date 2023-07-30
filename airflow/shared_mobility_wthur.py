@@ -56,8 +56,7 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 # This creates many conflicts during DagBag filling.
 meta = MetaData()
 
-table_path = Table(
-    'shared_mobility_path', meta,
+table_path_cols = (
     Column('id', String, primary_key=True, nullable=False),
     Column('provider', String, nullable=False, index=True),
     Column('point', Geometry('POINT'), nullable=False),
@@ -69,7 +68,15 @@ table_path = Table(
     Column('path_walk_since_last', Geometry('LINESTRING'), nullable=True),
     Column('distance_m_bike', Float, nullable=True),
     Column('path_bike_since_last', Geometry('LINESTRING'), nullable=True),
-
+)
+table_path = Table(
+    'shared_mobility_path', meta,
+    *(i.copy() for i in table_path_cols)
+)
+table_path_tmp = Table(
+    'shared_mobility_path_tmp', meta,
+    *(i.copy() for i in table_path_cols),
+    prefixes=['TEMPORARY']
 )
 
 table_provider = Table(
@@ -643,26 +650,41 @@ with DAG(
         assert dfqa.expect_column_values_to_be_between('distance_m_bike', min_value=0, max_value=20_000).success
         assert dfqa.expect_column_unique_value_count_to_be_between('provider', min_value=0, max_value=8).success
 
-        # Iterate over all rows. When time_from is before DAG execution date, then delete the
-        # corresponding row in PSQL before inserting the updated one later.
-        with engine.begin() as conn:
-            t_start = pd.to_datetime(context_utils.data_interval_start, utc=True)
-            for _, row in gdf[(gdf['time_from'] < t_start) & (gdf['time_to'] > t_start)][['id', 'time_from']].iterrows():
-                stmt = (
-                    delete(table_path)
-                    .where(table_path.c.id == row['id'])
-                    .where(table_path.c.time_from == row['time_from'])
-                )
-                conn.execute(stmt)
-                logging.info(f"Deleted for later upsert: {stmt}")
+        # Load data into PSQL, using UPSERT
+        with PostgresHook(target_conn_id).get_sqlalchemy_engine().begin() as conn:
 
-        # When using engine.begin() transaction will automatically be commited when exiting block
-        logging.info('Fill the calculated path table.')
-        with engine.begin() as conn:
-            rows = gdf.to_sql(table_path.name, conn, index=False, if_exists='append')
+            # Create temporary table to insert
+            meta.tables[table_path_tmp.name].create(conn)
+
+            # Insert data from one DAG run into temporary table
+            rows = gdf.to_postgis(table_path_tmp.name, conn, index=False, if_exists='append')
             logging.log(
-              logging.WARNING if (rows := rows) is None else logging.INFO,
-              f'Table {table_mart_edges.name}: {rows} rows were affected.'
+                logging.WARNING if (rows := rows) is None else logging.INFO,
+                f'Table {table_mart_edges.name}: {rows} rows were affected.'
+            )
+
+            # Insert to main table (shared_mobility_ids) with UPSERT
+            query = f"""
+                INSERT INTO {table_path.name} as ins
+                SELECT *
+                FROM {table_path_tmp.name}
+                ON CONFLICT (id, time_from) DO UPDATE
+                SET
+                    provider = EXCLUDED.provider
+                    , point = EXCLUDED.point
+                    , time_to = EXCLUDED.time_to
+                    , distance_m = EXCLUDED.distance_m
+                    , moving = EXCLUDED.moving
+                    , distance_m_walk = EXCLUDED.distance_m_walk
+                    , path_walk_since_last = EXCLUDED.path_walk_since_last
+                    , distance_m_bike = EXCLUDED.distance_m_bike
+                    , path_bike_since_last = EXCLUDED.path_bike_since_last
+                ;
+            """
+            rows = conn.execute(query)
+            logging.log(
+                logging.WARNING if rows == 0 else logging.INFO,
+                f'Table {table_mart_edges.name}: {rows} rows were affected.'
             )
 
 
