@@ -657,7 +657,7 @@ with DAG(
             meta.tables[table_path_tmp.name].create(conn)
 
             # Insert data from one DAG run into temporary table
-            rows = gdf.to_postgis(table_path_tmp.name, conn, index=False, if_exists='append')
+            rows = gdf.to_sql(table_path_tmp.name, conn, index=False, if_exists='append')
             logging.log(
                 logging.WARNING if (rows := rows) is None else logging.INFO,
                 f'Table {table_mart_edges.name}: {rows} rows were affected.'
