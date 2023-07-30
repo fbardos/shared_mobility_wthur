@@ -844,7 +844,7 @@ with DAG(
             SET
                 trip_start = EXCLUDED.trip_start
                 , trip_end = EXCLUDED.trip_end
-                , trip_walk_distance_m = EXCLUDED.trip_walk_distance_m;
+                , trip_walk_distance_m = EXCLUDED.trip_walk_distance_m
                 , trip_bike_distance_m = EXCLUDED.trip_bike_distance_m;
         """).format(
             source=sql.Identifier(table_path.name),
