@@ -382,10 +382,10 @@ with DAG(
             )
 
             # Insert to main table (shared_mobility_ids) with UPSERT
-            query = """
-                INSERT INTO shared_mobility_ids as ins
+            query = f"""
+                INSERT INTO {table_id.name} as ins
                 SELECT *
-                FROM shared_mobility_ids_tmp
+                FROM {table_id_tmp.name}
                 ON CONFLICT (id) DO UPDATE
                 SET
                     provider = EXCLUDED.provider
