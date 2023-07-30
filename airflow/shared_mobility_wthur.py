@@ -804,6 +804,7 @@ with DAG(
         Column('trip_start', DateTime, nullable=False),
         Column('trip_end', DateTime, nullable=False),
         Column('trip_walk_distance_m', Float, nullable=True),
+        Column('trip_bike_distance_m', Float, nullable=True),
     )
 
     @task(task_id='mart_trip_distance', retries=1, retry_delay=dt.timedelta(minutes=5))
@@ -818,6 +819,7 @@ with DAG(
                 , min(time_from) as trip_start
                 , max(time_from) as trip_end
                 , sum(distance_m_walk) as trip_walk_distance_m
+                , sum(distance_m_bike) as trip_bike_distance_m
             FROM (
                 SELECT
                     t.*
@@ -843,6 +845,7 @@ with DAG(
                 trip_start = EXCLUDED.trip_start
                 , trip_end = EXCLUDED.trip_end
                 , trip_walk_distance_m = EXCLUDED.trip_walk_distance_m;
+                , trip_bike_distance_m = EXCLUDED.trip_bike_distance_m;
         """).format(
             source=sql.Identifier(table_path.name),
             mart=sql.Identifier(table_mart_trip_distance.name),
