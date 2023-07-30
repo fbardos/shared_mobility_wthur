@@ -84,6 +84,23 @@ table_provider = Table(
     Column('count_reserved', Integer, nullable=False),
 )
 
+table_id_cols = (
+    Column('id', String, primary_key=True, nullable=False),
+    Column('provider', String, nullable=False, index=True),
+    Column('first_seen', DateTime, nullable=False, index=True),
+    Column('last_seen', DateTime, nullable=False, index=True),
+    Column('datapoints', Integer, nullable=False),
+)
+table_id = Table(
+    'shared_mobility_ids', meta,
+    *(i.copy() for i in table_id_cols)
+)
+table_id_tmp = Table(
+    'shared_mobility_ids_tmp', meta,
+    *(i.copy() for i in table_id_cols),
+    prefixes=['TEMPORARY']
+)
+
 @dataclass
 class AirflowContextUtils:
     context: Context
@@ -317,6 +334,69 @@ with DAG(
             rows = df.to_sql(table_provider.name, conn, index=False, if_exists='append')
             logging.log(
                 logging.WARNING if (rows := rows) is None else logging.INFO,
+                f'Table {table_mart_edges.name}: {rows} rows were affected.'
+            )
+
+    # ################################################################################################################
+    # SUBDAG: ID
+    # ################################################################################################################
+    @task(task_id='id_etl', retries=1, retry_delay=dt.timedelta(minutes=5))
+    def id_etl(target_conn_id: str):
+        context_utils = AirflowContextUtils(get_current_context())
+        mongo_hook = MongoHook(MONGO_CONN_ID)
+        with mongo_hook.get_conn() as client:
+            query = {
+                'geometry.coordinates.1': {'$gt': WTHUR_SOUTH, '$lt': WTHUR_NORTH},
+                'geometry.coordinates.0': {'$gt': WTHUR_WEST, '$lt': WTHUR_EAST},
+                '_meta_runtime_utc': {'$gt': context_utils.data_interval_start, '$lt': context_utils.data_interval_end},
+            }
+            db = client.opendata
+            col = db.shared_mobility
+            cursor = col.find(query)
+            df = pd.DataFrame(list(cursor))
+
+        df = (df
+            .assign(id=lambda x: x['properties'].apply(lambda y: y['id']))
+            .assign(provider=lambda x: x['properties'].apply(lambda y: y['provider']['name']))
+            .assign(time=lambda x: x['_meta_last_updated_utc'])
+            .groupby(['id', 'provider'])
+            .agg(
+                first_seen=('time', 'min'),
+                last_seen=('time', 'max'),
+                datapoints=('time', 'nunique'),
+            )
+            .reset_index()
+        )
+
+        logging.info(f'Fill the table {table_id.name} with UPSERT')
+        with PostgresHook(target_conn_id).get_sqlalchemy_engine().begin() as conn:
+
+            # Create temporary table to insert
+            meta.tables[table_id_tmp.name].create(conn)
+
+            # Insert data from one DAG run into temporary table
+            rows = df.to_sql(table_id_tmp.name, conn, index=False, if_exists='append')
+            logging.log(
+                logging.WARNING if (rows := rows) is None else logging.INFO,
+                f'Table {table_mart_edges.name}: {rows} rows were affected.'
+            )
+
+            # Insert to main table (shared_mobility_ids) with UPSERT
+            query = """
+                INSERT INTO shared_mobility_ids as ins
+                SELECT *
+                FROM shared_mobility_ids_tmp
+                ON CONFLICT (id) DO UPDATE
+                SET
+                    provider = EXCLUDED.provider
+                    , first_seen = LEAST(ins.first_seen, EXCLUDED.first_seen)
+                    , last_seen = GREATEST(ins.last_seen, EXCLUDED.last_seen)
+                    , datapoints = ins.datapoints + EXCLUDED.datapoints
+                ;
+            """
+            rows = conn.execute(query)
+            logging.log(
+                logging.WARNING if rows == 0 else logging.INFO,
                 f'Table {table_mart_edges.name}: {rows} rows were affected.'
             )
 
@@ -825,6 +905,7 @@ with DAG(
         depends_on_past=True,
     )
 
+    # PATH
     t_assert_path = CheckOrCreatePostgresTableOperator.partial(
         meta=meta, table_name=table_path.name,
         task_id='path_assert_table'
@@ -839,13 +920,13 @@ with DAG(
     )
     t_delete_old_path.set_upstream(t_etl_path)
 
-
+    # PROVIDER
     t_assert_provider = CheckOrCreatePostgresTableOperator.partial(
         meta=meta, table_name=table_provider.name,
         task_id='provider_assert_table'
     ).expand(target_conn_id=CONFIG.conn_ids)
     t_assert_provider.set_upstream(t_begin_assert_table)
-    t_etl_provider = provider_etl.expand(target_conn_id=CONFIG.conn_ids)
+    t_etl_provider = id_etl.expand(target_conn_id=CONFIG.conn_ids)
     t_etl_provider.set_upstream(t_assert_provider)
     t_delete_old_provider = (
         DeleteOldRows
@@ -854,8 +935,23 @@ with DAG(
     )
     t_delete_old_provider.set_upstream(t_etl_provider)
 
+    # ID
+    t_assert_id = CheckOrCreatePostgresTableOperator.partial(
+        meta=meta, table_name=table_id.name,
+        task_id='id_assert_table'
+    ).expand(target_conn_id=CONFIG.conn_ids)
+    t_assert_id.set_upstream(t_begin_assert_table)
+    t_etl_id = id_etl.expand(target_conn_id=CONFIG.conn_ids)
+    t_etl_id.set_upstream(t_assert_id)
+    t_delete_old_id = (
+        DeleteOldRows
+        .partial(task_id='delete_old_id', config=CONFIG, table_name=table_id.name, column_name=table_id.c.last_seen.name)
+        .expand(target_conn_id=CONFIG.conn_ids)
+    )
+    t_delete_old_id.set_upstream(t_etl_id)
+
     t_end_assert_table = DummyOperator(task_id='end_assert_table', trigger_rule='none_failed')
-    t_end_assert_table.set_upstream([t_delete_old_path, t_delete_old_provider])
+    t_end_assert_table.set_upstream([t_delete_old_path, t_delete_old_provider, t_delete_old_id])
 
     t_count_rows = (
         AssertPathRowsExecutionDate
