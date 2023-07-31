@@ -948,7 +948,7 @@ with DAG(
         task_id='provider_assert_table'
     ).expand(target_conn_id=CONFIG.conn_ids)
     t_assert_provider.set_upstream(t_begin_assert_table)
-    t_etl_provider = id_etl.expand(target_conn_id=CONFIG.conn_ids)
+    t_etl_provider = provider_etl.expand(target_conn_id=CONFIG.conn_ids)
     t_etl_provider.set_upstream(t_assert_provider)
     t_delete_old_provider = (
         DeleteOldRows
