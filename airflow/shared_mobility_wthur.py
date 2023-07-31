@@ -334,10 +334,7 @@ with DAG(
         assert dfqa.expect_column_values_to_be_between('count_distinct_ids', 0, 700).success
 
         # Load to PSQL
-        psql_hook = PostgresHook(target_conn_id)
-        engine = psql_hook.get_sqlalchemy_engine()
-        # with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
-        with engine.begin() as conn:
+        with PostgresHook(target_conn_id).get_sqlalchemy_engine().begin() as conn:
             rows = df.to_sql(table_provider.name, conn, index=False, if_exists='append')
             logging.log(
                 logging.WARNING if (rows := rows) is None else logging.INFO,
