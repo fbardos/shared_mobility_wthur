@@ -631,7 +631,7 @@
         "type": "postgres",
         "uid": "${DS_POSTGIS_SHARED_MOBILITY}"
       },
-      "description": "Shows the average duration, a scooter stays on the same position in bins of 24 hours. A bin starts at 00:00 and ends at 23:59:59. The lower the value, the more active the scooters of this provider is. The avarage is only calculated for scooters, whose ID was first first seen before time bin and last seen after time bin.\nIn reality, scooter staying duration should be higher. But because data gets collected every 2 minutes, scooters which get used alot will add some time uncertanty at begining and end of a trip and therefore show lower staying durations.",
+      "description": "Shows the average duration, a scooter stays on the same position in bins of 24 hours. A bin starts at 00:00 and ends at 23:59:59. The lower the value, the more active the scooters of this provider is. The avarage is only calculated for scooters, whose ID was first first seen before time bin and last seen after time bin.\nIn reality, scooter staying duration can differ. Data gets collected every 2 minutes, so real start/stop of staying times can be blurry.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -709,7 +709,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n\tt + INTERVAL '12 hours' as time\n\t, pat.provider\n\t, AVG(EXTRACT(EPOCH FROM (LEAST(time_to, t + INTERVAL '1 day') - GREATEST(time_from, t)))) as avg_wait_duration_seconds\nFROM shared_mobility_path pat\n\tCROSS JOIN generate_series(date_trunc('day', time_from), date_trunc('day', time_to), INTERVAL '1 day') g(t)\n\tJOIN shared_mobility_ids ids on pat.id = ids.id\nWHERE\n\tNOT moving\n\tAND time_from < $__timeTo() \n\tAND time_to > $__timeFrom()\n\tAND ids.first_seen < t\n\tAND ids.last_seen > t + INTERVAL '1 day'\nGROUP BY time, pat.provider",
+          "rawSql": "SELECT\n\ttmp.t + INTERVAL '12 hours' as time\n\t, tmp.provider\n\t, AVG(tmp.sum_wait_duration_seconds)\nFROM (\n\tSELECT\n\t\tt\n\t\t, pat.provider as provider\n\t\t, pat.id\n\t\t, SUM(EXTRACT(EPOCH FROM (LEAST(time_to, t + INTERVAL '1 day') - GREATEST(time_from, t)))) as sum_wait_duration_seconds\n\tFROM shared_mobility_path pat\n\t\tCROSS JOIN generate_series(date_trunc('day', time_from), date_trunc('day', time_to), INTERVAL '1 day') g(t)\n\t\tJOIN shared_mobility_ids ids on pat.id = ids.id\n\tWHERE\n\t\tNOT moving\n\t\tAND time_from < $__timeTo() \n\t\tAND time_to > $__timeFrom()\n\t\tAND ids.first_seen < t\n\t\tAND ids.last_seen > t + INTERVAL '1 day'\n\tGROUP BY t, pat.provider, pat.id\n) tmp\nGROUP BY time, tmp.provider\nORDER BY time",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1063,7 +1063,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "select\n  EXTRACT(EPOCH FROM date_trunc('day', trip_end)) as time\n  , provider as values\n  , count(*) as count_trips\nfrom shared_mobility_mart_trip_distance\nWHERE\n  trip_walk_distance_m > 0\n  and $__timeFilter(trip_end)\nGROUP BY time, provider\nORDER BY time, provider",
+          "rawSql": "select\n  EXTRACT(EPOCH FROM date_trunc('day', trip_end) + INTERVAL '12 hours') as time\n  , provider as values\n  , count(*) as count_trips\nfrom shared_mobility_mart_trip_distance\nWHERE\n  trip_walk_distance_m > 0\n  and $__timeFilter(trip_end)\nGROUP BY time, provider\nORDER BY time, provider",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1174,7 +1174,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "select\n  EXTRACT(EPOCH FROM date_trunc('hour', trip_end)) as time\n  , provider as values\n  , count(*) as count_trips\nfrom shared_mobility_mart_trip_distance\nWHERE\n  trip_walk_distance_m > 0\n  and $__timeFilter(trip_end)\nGROUP BY time, provider\nORDER BY time, provider",
+          "rawSql": "select\n  EXTRACT(EPOCH FROM date_trunc('hour', trip_end) + INTERVAL '30min') as time\n  , provider as values\n  , count(*) as count_trips\nfrom shared_mobility_mart_trip_distance\nWHERE\n  trip_walk_distance_m > 0\n  and $__timeFilter(trip_end)\nGROUP BY time, provider\nORDER BY time, provider",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1415,7 +1415,7 @@
         "type": "postgres",
         "uid": "${DS_POSTGIS_SHARED_MOBILITY}"
       },
-      "description": "Shows the average age of a scooter over time. As long as the average age raises over time, the calculation of paths can be performed more correctly. When the average age of scooter stays the same or even decreases, this can be an indicator, that scooter trips cannot be performed correctly. In this case, the moving scooter section has be looked ad with caution.",
+      "description": "Shows the average age of the scooters, grouped by provider. The values are displayed as index with base = 100% for the beginning of the time window. As long as the average age raises over time, this indicates, that the scooter IDs do not change very often. In this case, the calculation of paths can be performed more correctly. When the average age of scooter stays the same or even decreases, this can be an indicator, that scooter trips cannot be performed correctly. In this case, the moving scooter section has be looked ad with caution. When the time window selection ends on the current day, scooter ID age can suddenly drop. This is because of the limited datapoints at the last performed data calculation at 02:05 UTC.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1465,7 +1465,7 @@
               }
             ]
           },
-          "unit": "s"
+          "unit": "percentunit"
         },
         "overrides": []
       },
@@ -1497,7 +1497,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  EXTRACT(EPOCH FROM date_trunc('hour', x)) as time\n  , provider\n  , AVG(EXTRACT(EPOCH from x - first_seen)) as avg_age_seconds\nFROM shared_mobility_ids\n  CROSS JOIN generate_series(first_seen, last_seen, interval '1 hour') t(x)\nWHERE\n  first_seen < $__timeTo()\n  AND last_seen > $__timeFrom()\nGROUP BY time, provider\n\n\n",
+          "rawSql": "SELECT\n  EXTRACT(EPOCH FROM tmp.time + INTERVAL '30min') as time\n  , tmp.provider\n  , COALESCE(tmp.avg_age_seconds / NULLIF(FIRST_VALUE(tmp.avg_age_seconds) OVER (PARTITION BY tmp.provider ORDER BY tmp.time), 0), 1) as index \nFROM (\n  SELECT\n    date_trunc('hour', x) as time\n    , provider\n    , AVG(EXTRACT(EPOCH from x - first_seen)) as avg_age_seconds\n  FROM shared_mobility_ids\n    CROSS JOIN generate_series(first_seen, last_seen, interval '1 hour') t(x)\n  WHERE\n    first_seen < $__timeTo()::timestamp\n    AND last_seen > $__timeFrom()\n  GROUP BY time, provider\n) tmp\nWHERE\n  tmp.time BETWEEN $__timeFrom() and $__timeTo()\nORDER BY time, provider\n\n\n",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1518,11 +1518,11 @@
           }
         }
       ],
-      "title": "Age Scooter ID (mean)",
+      "title": "Age Scooter ID (index)",
       "type": "timeseries"
     }
   ],
-  "refresh": "",
+  "refresh": false,
   "schemaVersion": 38,
   "style": "dark",
   "tags": [],
@@ -1530,8 +1530,8 @@
     "list": []
   },
   "time": {
-    "from": "now-7d",
-    "to": "now"
+    "from": "2023-07-02T13:02:48.357Z",
+    "to": "2023-07-31T05:25:00.149Z"
   },
   "timepicker": {
     "refresh_intervals": [
@@ -1541,6 +1541,6 @@
   "timezone": "utc",
   "title": "BFE E-Scooter Winterthur",
   "uid": "scooter_winterthur",
-  "version": 40,
+  "version": 45,
   "weekStart": "monday"
 }
