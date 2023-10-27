@@ -1,8 +1,11 @@
 # Version matching according to PEP-440
 # run: conda env create --file environment.yml
 name: shared_mobility
+channels:
+  - defaults
+  - conda-forge
 dependencies:
-  - python==3.10*
+  - python=3.10
   - numpy
   - pandas
   - plotly
@@ -22,3 +25,6 @@ dependencies:
   - geoalchemy2
   - sqlalchemy
   - great-expectations
+  - airflow
+  - apache-airflow-providers-mongo
+  - apache-airflow-providers-postgres
