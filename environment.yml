@@ -1,0 +1,24 @@
+# Version matching according to PEP-440
+# run: conda env create --file environment.yml
+name: shared_mobility
+dependencies:
+  - python==3.10*
+  - numpy
+  - pandas
+  - plotly
+  - pymongo
+  - requests
+  - neovim
+  - isort
+  - jupyterlab
+  - ipython
+  - ipdb
+  - python-dotenv
+  - geopandas
+  - geopy
+  - osmnx
+  - networkx
+  - pyproj
+  - geoalchemy2
+  - sqlalchemy
+  - great-expectations
