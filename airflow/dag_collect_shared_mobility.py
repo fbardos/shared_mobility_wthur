@@ -47,7 +47,7 @@ with DAG(
         params = {}
         r = requests.get(BASE_URL + 'providers', params=params)
         providers = json.loads(r.content)
-        providers_filtered = [i['provider_id'] for i in providers if i['vehicle_type'] == 'E-Scooter']
+        providers_filtered = [i['provider_id'] for i in providers if 'E-Scooter' in i.get('vehicle_type', [])]
 
         # Extract all scooters by provider
         tasks = []
