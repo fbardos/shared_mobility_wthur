@@ -1,5 +1,6 @@
 ### User specific ###
 .vim
+.airflow
 
 ### Python ###
 # Byte-compiled / optimized / DLL files
