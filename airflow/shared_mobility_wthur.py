@@ -1,26 +1,6 @@
 """
-
 DAG to calculate paths of scooters.
-
-    1. Assert, target table is available
-    2. Insert rows. Each row represents a position and the duration, how long the scooter stayed there.
-        2.1 Get data from one day from MongoDB
-        2.2 Load last known position from PSQL
-        2.3 If position has not changed since last record, update the existing row in PSQL (time wise)
-    3. Calculate the distance driven from the last point (for walking and bycicle)
-
-Rows:
-    - Scooter id
-    - Geopoint
-    - time_arrive
-    - time_depart
-    - duration_resting
-    - moving (True, when arrive and depart are the same)
-    ------- Updated later:
-    - distance_to_last_foot
-    - subpath_to_last_foot (contains the edges from openstreetmap for the path)
-    - distance_to_last_bicycle
-    - subpath_to_last_bicycle (contains the edges from openstreetmap for the path)
+Also calculates data marts for Grafana dashboard.
 
 """
 import datetime as dt
