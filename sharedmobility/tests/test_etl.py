@@ -5,16 +5,15 @@ from pathlib import Path
 from typing import Optional
 
 import geopandas as gpd
+from geopandas.array import GeometryDtype
 import pandas as pd
 import pytest
 from osmnx.io import load_graphml
-from pandas.api.types import is_string_dtype
-from sqlalchemy import MetaData
 
 from airflow.models import DagBag
-from airflow.utils.context import Context
 
-import sharedmobility.shared_mobility_wthur as sm
+import sharedmobility.tables as smt
+import sharedmobility.transformation as sm
 
 # Important when importing local files:
 #   Pytest comes up with this test package name by finding the first directory at or above the level of the file that
@@ -22,9 +21,6 @@ import sharedmobility.shared_mobility_wthur as sm
 #   generated from this file. It then adds the basedir to sys.path and imports using the module name that will find
 #   that file relative to the basedir.
 #   Source: https://stackoverflow.com/a/50169991
-from sharedmobility.shared_mobility_wthur import (
-    SharedMobilityConfig, SharedMobilityPathEtlOperator)
-from sharedmobility.docker import ContextVariables
 
 
 TEST_TASK_ID = 'path_etl'
@@ -69,29 +65,35 @@ class TestPathEtl:
 
     @dataclass
     class OperatorContainer:
-        operator: SharedMobilityPathEtlOperator
-        dummy_context: Context
+        operator: sm.PathEtlTransformation
         data: Optional[pd.DataFrame] = None
-    
+
     @pytest.fixture(scope='class')
     def path_etl_operator(self, monkeyclass) -> OperatorContainer:
         
-        def mocked_data_interval_start(*args, **kwargs) -> dt.datetime:
-            return dt.datetime(2023, 1, 1, tzinfo=dt.timezone.utc)
+        # def mocked_data_interval_start(*args, **kwargs) -> dt.datetime:
+            # return dt.datetime(2023, 1, 1, tzinfo=dt.timezone.utc)
         
-        monkeyclass.setattr(SharedMobilityPathEtlOperator, 'get_data_interval_start', mocked_data_interval_start)
-        monkeyclass.setattr(ContextVariables, 'get_env_interval_start', property(mocked_data_interval_start))
+        # monkeyclass.setattr(SharedMobilityPathEtlOperator, 'get_data_interval_start', mocked_data_interval_start)
+        # monkeyclass.setattr(ContextVariables, 'get_env_interval_start', property(mocked_data_interval_start))
 
         # meta = MetaData()
         # config = SharedMobilityConfig()  # use default values
-        op = SharedMobilityPathEtlOperator(
-            # task_id=TEST_TASK_ID,  --> REMOVED because not a Airflow BaseOperator anymore
-            # meta=meta,
-            # config=config,
-            target_conn_id='dummy',
+        # op = SharedMobilityPathEtlOperator(
+            # # task_id=TEST_TASK_ID,  --> REMOVED because not a Airflow BaseOperator anymore
+            # # meta=meta,
+            # # config=config,
+            # target_conn_id='dummy',
+        # )
+        
+        # Path ENV variables
+        monkeyclass.setenv('AIRFLOW_CONTEXT__CONTEXT__DATA_INTERVAL_START', '2023-01-01T00:05:00+00:00')
+        monkeyclass.setenv('AIRFLOW_CONTEXT__CONTEXT__DATA_INTERVAL_END', '2023-01-02T00:05:00+00:00')
+        
+        op = sm.PathEtlTransformation(
+            target_conn_id='dummy'
         )
-        dummy_context = Context()
-        return self.OperatorContainer(op, dummy_context)
+        return self.OperatorContainer(op)
 
     @pytest.fixture(scope='class')
     def graph_walk(self):
@@ -119,8 +121,8 @@ class TestPathEtl:
     @pytest.fixture(scope='class')
     def calculated_path(self, monkeyclass, data_simple, graph_walk, graph_bike) -> pd.DataFrame:
         # TODO: DRY: Find a way to not write duplicate monkeypatches for multiple fixtures...
-        monkeyclass.setattr(SharedMobilityPathEtlOperator, 'graph_walk', graph_walk)
-        monkeyclass.setattr(SharedMobilityPathEtlOperator, 'graph_bike', graph_bike)
+        monkeyclass.setattr(sm.PathEtlTransformation, 'graph_walk', graph_walk)
+        monkeyclass.setattr(sm.PathEtlTransformation, 'graph_bike', graph_bike)
 
         # Calculate actual paths (can take some time)
         return data_simple.operator._transform_and_calculate_paths(
@@ -129,8 +131,8 @@ class TestPathEtl:
     
     @pytest.fixture(scope='class')
     def calculated_path_double(self, monkeyclass, data_double, graph_walk, graph_bike) -> pd.DataFrame:
-        monkeyclass.setattr(SharedMobilityPathEtlOperator, 'graph_walk', graph_walk)
-        monkeyclass.setattr(SharedMobilityPathEtlOperator, 'graph_bike', graph_bike)
+        monkeyclass.setattr(sm.PathEtlTransformation, 'graph_walk', graph_walk)
+        monkeyclass.setattr(sm.PathEtlTransformation, 'graph_bike', graph_bike)
 
         # Calculate actual paths (can take some time)
         return data_double.operator._transform_and_calculate_paths(
@@ -139,8 +141,8 @@ class TestPathEtl:
     
     @pytest.fixture(scope='class')
     def calculated_path_standing(self, monkeyclass, data_standing, graph_walk, graph_bike) -> pd.DataFrame:
-        monkeyclass.setattr(SharedMobilityPathEtlOperator, 'graph_walk', graph_walk)
-        monkeyclass.setattr(SharedMobilityPathEtlOperator, 'graph_bike', graph_bike)
+        monkeyclass.setattr(sm.PathEtlTransformation, 'graph_walk', graph_walk)
+        monkeyclass.setattr(sm.PathEtlTransformation, 'graph_bike', graph_bike)
 
 
         # Calculate actual paths (can take some time)
@@ -231,12 +233,8 @@ class TestPathEtl:
 
     @pytest.mark.parametrize('column_name', ['path_walk_since_last', 'path_bike_since_last'])
     def test_dataframe_columns(self, calculated_path, column_name: str):
-        """Expect dtype object
-
-        To insert into PostGIS, geometry columns must be stored as 
-        strings (WKT), not as geometry.
-        """
-        assert is_string_dtype(calculated_path[column_name])
+        """Expect dtype object to be a geometry dtype."""
+        assert isinstance(calculated_path[column_name].dtype, GeometryDtype)
 
     @pytest.mark.parametrize(
         'step, exp_lower, exp_upper, err_factor',
@@ -256,20 +254,18 @@ class TestPathEtl:
             u = exp_upper
             assert l * (1/err_factor) <= df[f'distance_m_{t}'].iloc[step] <= u * err_factor
 
-# Maybe not needed anymore...
+
 def test_sqlmodel_tables():
-    dbbase = sm.SQLModel
+    dbbase = smt.SQLModel
     actual_table_names = list(dbbase.metadata.tables.keys())
     expected_tables = [
         'shared_mobility_path',
-        'shared_mobility_path_tmp',
         'shared_mobility_provider',
         'shared_mobility_ids',
-        'shared_mobility_ids_tmp',
         'shared_mobility_mart_edges',
+        'shared_mobility_mart_distinct_ids',
+        'shared_mobility_mart_scooter_age',
+        'shared_mobility_mart_trip_distance',
     ]
     for i in expected_tables:
         assert i in actual_table_names
-    assert 1 == 2
-
-
