@@ -1,0 +1,3 @@
+[submodule "submodules/python_docker_operator"]
+	path = submodules/python_docker_operator
+	url = git@github.com:fbardos/python_docker_operator.git

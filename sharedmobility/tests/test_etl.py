@@ -1,24 +1,20 @@
-import pytest
-import os
-import pandas as pd
-import geopandas as gpd
-from dataclasses import dataclass
-from typing import Tuple, Optional
-
-import airflow
-from osmnx.io import load_graphml
-from airflow import DAG
-from airflow.models import DagBag
-from airflow.utils.state import DagRunState
-from airflow.utils.types import DagRunType
-from airflow.utils.context import Context
-from airflow.operators.python import get_current_context
-from pathlib import Path
 import datetime as dt
-from pyproj import CRS
-from pandas.api.types import is_string_dtype
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
 
+import geopandas as gpd
+import pandas as pd
+import pytest
+from osmnx.io import load_graphml
+from pandas.api.types import is_string_dtype
 from sqlalchemy import MetaData
+
+from airflow.models import DagBag
+from airflow.utils.context import Context
+
+import sharedmobility.shared_mobility_wthur as sm
 
 # Important when importing local files:
 #   Pytest comes up with this test package name by finding the first directory at or above the level of the file that
@@ -26,13 +22,12 @@ from sqlalchemy import MetaData
 #   generated from this file. It then adds the basedir to sys.path and imports using the module name that will find
 #   that file relative to the basedir.
 #   Source: https://stackoverflow.com/a/50169991
-from sharedmobility.shared_mobility_wthur import SharedMobilityPathEtlOperator, SharedMobilityConfig, SharedMobilityConnectionStrings
+from sharedmobility.shared_mobility_wthur import (
+    SharedMobilityConfig, SharedMobilityPathEtlOperator)
+from sharedmobility.docker import ContextVariables
 
-# TODO: Only needed when testing Airflow here...
-TEST_DAG_ID = 'shared_mobility_wthur'
+
 TEST_TASK_ID = 'path_etl'
-DATA_INTERVAL_START = dt.datetime(2023, 1, 1, 13, tzinfo=dt.timezone.utc)
-DATA_INTERVAL_END = DATA_INTERVAL_START + dt.timedelta(days=1)
 
 
 @pytest.fixture(scope='class')
@@ -45,13 +40,16 @@ def monkeyclass():
 def get_path_testdata(filename: str) -> str:
     return os.path.join(Path(__file__).parents[0], 'data', filename)
 
+
 @pytest.fixture(scope='session')
 def data_path_simple():
     return pd.read_json(get_path_testdata('test_path_single_id.json'))
 
+
 @pytest.fixture(scope='session')
 def data_path_double():
     return pd.read_json(get_path_testdata('test_path_double.json'))
+
 
 
 @pytest.fixture(scope='session')
@@ -59,48 +57,10 @@ def data_path_standing():
     return pd.read_json(get_path_testdata('test_path_standing_still.json'))
 
 
+
 @pytest.fixture
 def dagbag():
     return DagBag()
-
-# Currently not needed...
-# @pytest.fixture()
-# def dag():
-    # with DAG(
-        # dag_id=TEST_DAG_ID,
-        # schedule="@daily",
-        # start_date=DATA_INTERVAL_START,
-    # ) as dag:
-        # meta = MetaData()
-        # config = SharedMobilityConfig(
-            # pos_south=47.449753,
-            # pos_north=47.532571,
-            # pos_west=8.687158,
-            # pos_east=8.784503,
-            # pos_change_when_bigger_than_meter=50,
-            # mongo_conn_id='mongo_opendata',
-            # config=SharedMobilityConnectionStrings(
-                # conn_id_private='psql_marts',
-                # conn_id_public='psql_public',
-                # keep_public_days=365,
-            # )
-        # )
-        # SharedMobilityPathEtlOperator(
-            # task_id=TEST_TASK_ID,
-            # meta=meta,
-            # config=config,
-            # target_conn_id='dummy',
-        # )
-    # return dag
-
-class TestGeneral:
-
-    # TODO: Reenable
-    @pytest.mark.skip(reason='Skip only for now, reactivate later...')
-    def test_dag_loaded(self, dagbag):
-        dag = dagbag.get_dag(dag_id='shared_mobility_wthur')
-        assert dag is not None
-        assert len(dag.tasks) > 0
 
 
 class TestPathEtl:
@@ -120,13 +80,14 @@ class TestPathEtl:
             return dt.datetime(2023, 1, 1, tzinfo=dt.timezone.utc)
         
         monkeyclass.setattr(SharedMobilityPathEtlOperator, 'get_data_interval_start', mocked_data_interval_start)
+        monkeyclass.setattr(ContextVariables, 'get_env_interval_start', property(mocked_data_interval_start))
 
-        meta = MetaData()
-        config = SharedMobilityConfig()  # use default values
+        # meta = MetaData()
+        # config = SharedMobilityConfig()  # use default values
         op = SharedMobilityPathEtlOperator(
-            task_id=TEST_TASK_ID,
-            meta=meta,
-            config=config,
+            # task_id=TEST_TASK_ID,  --> REMOVED because not a Airflow BaseOperator anymore
+            # meta=meta,
+            # config=config,
             target_conn_id='dummy',
         )
         dummy_context = Context()
@@ -163,7 +124,7 @@ class TestPathEtl:
 
         # Calculate actual paths (can take some time)
         return data_simple.operator._transform_and_calculate_paths(
-            data_simple.data, data_simple.dummy_context
+            data_simple.data
         )
     
     @pytest.fixture(scope='class')
@@ -173,7 +134,7 @@ class TestPathEtl:
 
         # Calculate actual paths (can take some time)
         return data_double.operator._transform_and_calculate_paths(
-            data_double.data, data_double.dummy_context
+            data_double.data
         )
     
     @pytest.fixture(scope='class')
@@ -184,7 +145,7 @@ class TestPathEtl:
 
         # Calculate actual paths (can take some time)
         return data_standing.operator._transform_and_calculate_paths(
-            data_standing.data, data_standing.dummy_context
+            data_standing.data
         )
 
     @pytest.mark.parametrize(
@@ -295,47 +256,20 @@ class TestPathEtl:
             u = exp_upper
             assert l * (1/err_factor) <= df[f'distance_m_{t}'].iloc[step] <= u * err_factor
 
+# Maybe not needed anymore...
+def test_sqlmodel_tables():
+    dbbase = sm.SQLModel
+    actual_table_names = list(dbbase.metadata.tables.keys())
+    expected_tables = [
+        'shared_mobility_path',
+        'shared_mobility_path_tmp',
+        'shared_mobility_provider',
+        'shared_mobility_ids',
+        'shared_mobility_ids_tmp',
+        'shared_mobility_mart_edges',
+    ]
+    for i in expected_tables:
+        assert i in actual_table_names
+    assert 1 == 2
 
-
-# class TestPathEtl:
-    # # DAG_ID = 'shared_mobility_wthur'
-    # # TASK_ID = 'path_etl'
-
-    # # @patch('sqlalchemy.engine.Connection.execute')
-    # # @patch('pandas.DataFrame.to_sql')
-    # # @patch('airflow.operators.python.get_current_context')
-    # def test_provider_calculation(self, dag, monkeypatch, dagbag):
-        # # with open('data/test_path_single_id.json', 'r') as file:
-        # with open(get_path_json(), 'r') as file:
-            # df = pd.read_json(file, orient='records')
-        # # monkeypatch.setattr(pd, 'DataFrame', df)
-        # # monkeypatch.setattr(sqlalchemy.engine.Connection, 'execute', None)
-        # # monkeypatch.setattr(pd.DataFrame, 'to_sql', None)
-        # # monkeypatch.setattr(airflow.operators.python, 'get_current_context', None)
-        # #
-        # # FIX: Maybe, no airflow needed anymore, ecause is now in a separate class..
-
-        # # task = dagbag.get_dag(self.DAG_ID).get_task(self.TASK_ID)
-        # # DATA_INTERVAL_START = dt.datetime(2023, 1, 1, 13, tzinfo=dt.timezone.utc)
-        # # DATA_INTERVAL_END = DATA_INTERVAL_START + dt.timedelta(days=1)
-        # # dag = dagbag.get_dag(self.DAG_ID)
-        # dagrun = dag.create_dagrun(
-            # state=DagRunState.RUNNING,
-            # execution_date=DATA_INTERVAL_START,
-            # data_interval=(DATA_INTERVAL_START, DATA_INTERVAL_END),
-            # start_date=DATA_INTERVAL_END,
-            # run_type=DagRunType.MANUAL
-        # )
-        # ti = dagrun.get_task_instance(task_id=TEST_TASK_ID)
-        # ti.task = dag.get_task(task_id=TEST_TASK_ID)
-        # ti.run(ignore_ti_state=True, test_mode=True, ignore_task_deps=True)
-        
-        # # print(ti)
-        
-        # gdf = task.python_callable('dummy')
-        # gdf = task.e
-
-        # config = SharedMobilityConfig()
-        # meta = MetaData()
-        # op = SharedMobilityPathEtlOperator(meta=meta, config=config, target_conn_id='dummy')
 

@@ -1,0 +1,25 @@
+FROM condaforge/mambaforge:latest
+
+ARG DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+RUN mkdir /usr/src/app
+WORKDIR /usr/src/app
+COPY environment.yml .
+
+RUN apt update &&  apt install -y tzdata \
+  && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
+  && apt clean \
+  && rm -rf /var/lib/apt/lists/*
+
+# Updates base environment with the provided environment.yml
+RUN conda env update --name base -f environment.yml --solver=libmamba --prune \
+  && conda clean -ay
+
+# Install sharedmobility and python_docker_operator package
+# This is the last step to quickly rebuild the image when the code changes
+COPY . .
+RUN pip install -e submodules/python_docker_operator/
+RUN pip install -e .
+
+

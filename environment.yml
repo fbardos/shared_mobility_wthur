@@ -24,8 +24,12 @@ dependencies:
   - networkx
   - pyproj
   - geoalchemy2
-  - sqlalchemy
+  - sqlalchemy==1.4.51
+  - sqlmodel
+  - pydantic<2  # Sqlmodel is currently not compatible with pydantic V2
   - great-expectations
   - airflow
   - apache-airflow-providers-mongo
   - apache-airflow-providers-postgres
+  - apache-airflow-providers-docker
+  - jinja2=3.0.3
