@@ -26,6 +26,7 @@ class SharedMobilityConfig:
     pos_east: float = 8.784503
     pos_change_when_bigger_than_meter: int = 50
     mongo_conn_id: str = 'mongo_opendata'
+    redis_conn_id: str = 'redis_cache'
     conn_id_private: str = 'psql_marts'
     conn_id_public: str = 'psql_public'
     keep_public_days: int = 365
