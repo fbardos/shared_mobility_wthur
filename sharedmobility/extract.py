@@ -5,6 +5,8 @@ import json
 import itertools
 import datetime as dt
 
+from aiohttp.client_exceptions import ContentTypeError
+
 from airflow import DAG
 from airflow.decorators import task
 from airflow.providers.mongo.hooks.mongo import MongoHook
@@ -30,7 +32,10 @@ class SharedMobilityExtractor:
             }
             print(f'GET PARAMS: {params}')
             async with session.get(self.BASE_URL + 'find', params=params) as response:
-                scooter_page = await response.json()
+                try:
+                    scooter_page = await response.json()
+                except ContentTypeError:
+                    scooter_page = []
             if len(scooter_page) == 0:  # When end of pagination reached
                 break
             else:
