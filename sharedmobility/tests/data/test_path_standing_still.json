@@ -1,0 +1,146 @@
+[
+  {
+    "_____TEST_COMMENT": "POS 1.0: STANDING Zentrum Toess",
+    "geometry": {
+      "coordinates": [
+        8.706381,
+        47.491064
+      ]
+    },
+    "properties": {
+      "provider": {
+        "name": "Bolt"
+      }
+    },
+    "id": "bolt_zurich:57538005-4ce9-47d0-8361-73b623b3b5c4",
+    "_meta_last_updated_utc": "2023-01-01 01:27:15"
+  },
+  {
+    "_____TEST_COMMENT": "POS 1.1: STANDING Zentrum Toess, slightly different position",
+    "geometry": {
+      "coordinates": [
+        8.706391,
+        47.491006
+      ]
+    },
+    "properties": {
+      "provider": {
+        "name": "Bolt"
+      }
+    },
+    "id": "bolt_zurich:57538005-4ce9-47d0-8361-73b623b3b5c4",
+    "_meta_last_updated_utc": "2023-01-01 01:29:15"
+  },
+  {
+    "_____TEST_COMMENT": "POS 1.2: STANDING Zentrum Toess, another slightly different position",
+    "geometry": {
+      "coordinates": [
+        8.706518,
+        47.491074
+      ]
+    },
+    "properties": {
+      "provider": {
+        "name": "Bolt"
+      }
+    },
+    "id": "bolt_zurich:57538005-4ce9-47d0-8361-73b623b3b5c4",
+    "_meta_last_updated_utc": "2023-01-01 01:39:15"
+  },
+  {
+    "_____TEST_COMMENT": "POS 1.0: STANDING Zentrum Toess",
+    "geometry": {
+      "coordinates": [
+        8.706381,
+        47.491064
+      ]
+    },
+    "properties": {
+      "provider": {
+        "name": "Bolt"
+      }
+    },
+    "id": "bolt_zurich:57538005-4ce9-47d0-8361-73b623b3b5c4",
+    "_meta_last_updated_utc": "2023-01-01 01:42:15"
+  },
+  {
+    "_____TEST_COMMENT": "POS 1.1: STANDING Zentrum Toess, slightly different position",
+    "geometry": {
+      "coordinates": [
+        8.706391,
+        47.491006
+      ]
+    },
+    "properties": {
+      "provider": {
+        "name": "Bolt"
+      }
+    },
+    "id": "bolt_zurich:57538005-4ce9-47d0-8361-73b623b3b5c4",
+    "_meta_last_updated_utc": "2023-01-01 01:44:15"
+  },
+  {
+    "_____TEST_COMMENT": "POS 1.2: STANDING Zentrum Toess, another slightly different position",
+    "geometry": {
+      "coordinates": [
+        8.706518,
+        47.491074
+      ]
+    },
+    "properties": {
+      "provider": {
+        "name": "Bolt"
+      }
+    },
+    "id": "bolt_zurich:57538005-4ce9-47d0-8361-73b623b3b5c4",
+    "_meta_last_updated_utc": "2023-01-01 01:47:15"
+  },
+  {
+    "_____TEST_COMMENT": "POS 1.0: STANDING Zentrum Toess",
+    "geometry": {
+      "coordinates": [
+        8.706381,
+        47.491064
+      ]
+    },
+    "properties": {
+      "provider": {
+        "name": "Bolt"
+      }
+    },
+    "id": "bolt_zurich:57538005-4ce9-47d0-8361-73b623b3b5c4",
+    "_meta_last_updated_utc": "2023-01-01 01:51:15"
+  },
+  {
+    "_____TEST_COMMENT": "POS 1.1: STANDING Zentrum Toess, slightly different position",
+    "geometry": {
+      "coordinates": [
+        8.706391,
+        47.491006
+      ]
+    },
+    "properties": {
+      "provider": {
+        "name": "Bolt"
+      }
+    },
+    "id": "bolt_zurich:57538005-4ce9-47d0-8361-73b623b3b5c4",
+    "_meta_last_updated_utc": "2023-01-01 01:56:15"
+  },
+  {
+    "_____TEST_COMMENT": "POS 1.2: STANDING Zentrum Toess, another slightly different position",
+    "geometry": {
+      "coordinates": [
+        8.706518,
+        47.491074
+      ]
+    },
+    "properties": {
+      "provider": {
+        "name": "Bolt"
+      }
+    },
+    "id": "bolt_zurich:57538005-4ce9-47d0-8361-73b623b3b5c4",
+    "_meta_last_updated_utc": "2023-01-01 02:01:13"
+  }
+]

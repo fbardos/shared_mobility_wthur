@@ -1,0 +1,130 @@
+[
+  {
+    "_____TEST_COMMENT": "POS 1.0: STANDING Zentrum Toess",
+    "geometry": {
+      "coordinates": [
+        8.706381,
+        47.491064
+      ]
+    },
+    "properties": {
+      "provider": {
+        "name": "Bolt"
+      }
+    },
+    "id": "bolt_zurich:57538005-4ce9-47d0-8361-73b623b3b5c4",
+    "_meta_last_updated_utc": "2023-01-01 01:27:15"
+  },
+  {
+    "_____TEST_COMMENT": "POS 1.1: STANDING Zentrum Toess, slightly different position",
+    "geometry": {
+      "coordinates": [
+        8.706391,
+        47.491006
+      ]
+    },
+    "properties": {
+      "provider": {
+        "name": "Bolt"
+      }
+    },
+    "id": "bolt_zurich:57538005-4ce9-47d0-8361-73b623b3b5c4",
+    "_meta_last_updated_utc": "2023-01-01 01:29:15"
+  },
+  {
+    "_____TEST_COMMENT": "POS 1.2: STANDING Zentrum Toess, another slightly different position",
+    "geometry": {
+      "coordinates": [
+        8.706518,
+        47.491074
+      ]
+    },
+    "properties": {
+      "provider": {
+        "name": "Bolt"
+      }
+    },
+    "id": "bolt_zurich:57538005-4ce9-47d0-8361-73b623b3b5c4",
+    "_meta_last_updated_utc": "2023-01-01 01:39:15"
+  },
+  {
+    "_____TEST_COMMENT": "POS 2.0: MOVING from Zentrum Toess to Buro Schoch",
+    "geometry": {
+      "coordinates": [
+        8.711705,
+        47.494676
+      ]
+    },
+    "properties": {
+      "provider": {
+        "name": "Bolt"
+      }
+    },
+    "id": "bolt_zurich:57538005-4ce9-47d0-8361-73b623b3b5c4",
+    "_meta_last_updated_utc": "2023-01-01 01:41:15"
+  },
+  {
+    "_____TEST_COMMENT": "POS 3.0: STANDING Buro Schoch (TRIP was approx 1.09km)",
+    "geometry": {
+      "coordinates": [
+        8.717190,
+        47.497948
+      ]
+    },
+    "properties": {
+      "provider": {
+        "name": "Bolt"
+      }
+    },
+    "id": "bolt_zurich:57538005-4ce9-47d0-8361-73b623b3b5c4",
+    "_meta_last_updated_utc": "2023-01-01 01:43:15"
+  },
+  {
+    "_____TEST_COMMENT": "POS 3.1: STANDING Buro Schoch",
+    "geometry": {
+      "coordinates": [
+        8.717010,
+        47.497787
+      ]
+    },
+    "properties": {
+      "provider": {
+        "name": "Bolt"
+      }
+    },
+    "id": "bolt_zurich:57538005-4ce9-47d0-8361-73b623b3b5c4",
+    "_meta_last_updated_utc": "2023-01-01 01:45:15"
+  },
+  {
+    "_____TEST_COMMENT": "POS 4.0: WAS MOVING (after 1 hour) to city centrum (TRIP was approx 380 meters)",
+    "geometry": {
+      "coordinates": [
+        8.721693,
+        47.498574
+      ]
+    },
+    "properties": {
+      "provider": {
+        "name": "Bolt"
+      }
+    },
+    "id": "bolt_zurich:57538005-4ce9-47d0-8361-73b623b3b5c4",
+    "_meta_last_updated_utc": "2023-01-01 02:38:15"
+  },
+  {
+    "_____TEST_COMMENT": "POS 4.0: NOW STANDING STILL",
+    "geometry": {
+      "coordinates": [
+        8.721693,
+        47.498574
+      ]
+    },
+    "properties": {
+      "provider": {
+        "name": "Bolt"
+      }
+    },
+    "id": "bolt_zurich:57538005-4ce9-47d0-8361-73b623b3b5c4",
+    "_meta_last_updated_utc": "2023-01-01 02:40:15"
+  }
+]
