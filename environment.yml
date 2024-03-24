@@ -6,6 +6,7 @@ channels:
   - conda-forge
 dependencies:
   - python=3.10
+  - pip
   - pytest
   - numpy
   - pandas
@@ -33,3 +34,6 @@ dependencies:
   - apache-airflow-providers-postgres
   - apache-airflow-providers-docker
   - jinja2=3.0.3
+  - pip:
+    - redis
+

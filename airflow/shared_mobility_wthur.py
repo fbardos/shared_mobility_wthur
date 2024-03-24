@@ -82,6 +82,7 @@ with DAG(
             custom_file_path=os.path.join('tasks', 'path_etl.py'),
             custom_connection_ids=[
                 CONFIG.mongo_conn_id,
+                CONFIG.redis_conn_id,
                 CONFIG.conn_id_private,
                 CONFIG.conn_id_public
             ],

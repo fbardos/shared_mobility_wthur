@@ -7,6 +7,7 @@ import datetime as dt
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+import pickle
 from typing import Optional
 
 import geopandas as gpd
@@ -139,7 +140,6 @@ class DeleteOldRowsTransformation(SharedMobilityTransformation):
                 conn.execute(text(query), dict(delete_from=self._delete_before))
 
 
-# TODO: Add caching for OSMNX data via redis (ttl = 1 day)
 class PathEtlTransformation(SharedMobilityTransformation):
 
     def __init__(
@@ -250,11 +250,21 @@ class PathEtlTransformation(SharedMobilityTransformation):
         return df
 
     def _get_graph_from_bbox(self, graph_type: str):
-         return ox.graph_from_bbox(
-            south=self._config.pos_south, north=self._config.pos_north,
-            west=self._config.pos_west, east=self._config.pos_east,
-            network_type=graph_type
-        )
+
+        # Caching: Load data from redis, when available
+        _key = f'sharedmobility:osmnx:graph:{graph_type}'
+        redis = ConnectionInterface(SharedMobilityConfig.redis_conn_id).redis_connection
+        if redis.exists(_key):
+            return pickle.loads(redis.get(_key))
+        else:
+            graph = ox.graph_from_bbox(
+                south=self._config.pos_south, north=self._config.pos_north,
+                west=self._config.pos_west, east=self._config.pos_east,
+                network_type=graph_type
+            )
+            redis.set(_key, pickle.dumps(graph), ex=60*60*12)
+            return graph
+
 
     @property
     def graph_walk(self):
@@ -722,6 +732,7 @@ class GenerateMartDistinctIds(SharedMobilityTransformation):
         with engine.connect() as conn:
             # TODO: This query is currently not ready for inter-day periods,
             #   because it takes only the day of period_start.
+            #   --> Add an UPSERT statement for the whole day, when DAG is executed multiple times a day.
             query = f"""
                 INSERT INTO {smt.TableMartDistinctIds.__tablename__}
                 SELECT
