@@ -1,5 +1,2 @@
-# Ignore everything
-*
-
-# ... except dag directory
-!airflow/*
+# Exclude sharedmobility package
+sharedmobility/
