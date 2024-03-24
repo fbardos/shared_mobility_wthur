@@ -30,8 +30,7 @@ class SharedMobilityExtractor:
             }
             print(f'GET PARAMS: {params}')
             async with session.get(self.BASE_URL + 'find', params=params) as response:
-                r_text = await response.text()
-                scooter_page = json.loads(r_text)
+                scooter_page = await response.json()
             if len(scooter_page) == 0:  # When end of pagination reached
                 break
             else:
