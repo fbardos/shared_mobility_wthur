@@ -16,13 +16,13 @@ with DAG(
 ) as dag:
 
     DOCKER_IMAGE = 'fbardos/shared_mobility:latest'
-    
+
     t1 = PythonDockerOperator(
         task_id='gather_data',
         image=DOCKER_IMAGE,
         custom_file_path=os.path.join('tasks', 'extract.py'),
         custom_connection_ids=['mongo_opendata'],
-        custom_args=['mongo_opendata'],
+        custom_cmd_args=['mongo_opendata'],
     )
 
     t1
