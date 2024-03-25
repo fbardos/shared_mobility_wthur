@@ -524,12 +524,7 @@ class ProviderEtlTransformation(SharedMobilityTransformation):
             .assign(provider=lambda x: x['properties'].apply(lambda y: y['provider']['name']))
             .assign(delta_updated=lambda x: x['_meta_runtime_utc'] - x['_meta_last_updated_utc'])
             .assign(id=lambda x: x['properties'].apply(lambda y: y['id']))
-            .assign(available=lambda x: (
-                x['properties']
-                .apply(lambda y: y['available'])
-                .fillna(0)
-                .astype(int)
-            ))
+            .assign(available=1)  # After API upgrade, does not return available anymore
             .assign(disabled=lambda x: (
                 x['properties']
                 .apply(lambda y: y.get('vehicle', {}).get('status', {}).get('disabled'))
