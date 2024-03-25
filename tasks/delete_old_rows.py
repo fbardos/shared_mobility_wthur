@@ -20,12 +20,18 @@ if __name__ == '__main__':
 
     # Run
     args = parser.parse_args()
+    if args.deletebeforedays is None:
+        arg_del_before = None
+    else:
+        arg_del_before = ContextInterface().env_data_interval_start - dt.timedelta(days=args.deletebeforedays)
+    if args.isdelete is None:
+        args.isdelete = False
     op = sm.DeleteOldRowsTransformation(
         table_name=args.table_name,
         column_name=args.column_name,
         target_conn_id=args.target_conn_id,
         is_delete=args.isdelete,
-        delete_before=ContextInterface().env_data_interval_start - dt.timedelta(days=args.deletebeforedays),
+        delete_before=arg_del_before,
     )
     op.execute()
 
