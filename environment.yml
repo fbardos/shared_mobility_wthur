@@ -23,7 +23,7 @@ dependencies:
   - geopy
   - osmnx
   - networkx
-  - pyproj
+  - pyproj==3.6.0  # there was a bug in 3.6.1
   - geoalchemy2
   - sqlalchemy==1.4.51
   - sqlmodel
