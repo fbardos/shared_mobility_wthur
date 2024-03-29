@@ -112,7 +112,7 @@ with DAG(
                     'time_to',
                     CONFIG.conn_id_public,
                     '--isdelete',
-                    '--deletebeforedays', 365
+                    '--deletebeforedays', '365'
                 ],
                 [
                     'shared_mobility_path',
@@ -181,7 +181,7 @@ with DAG(
                     'time_to',
                     CONFIG.conn_id_public,
                     '--isdelete',
-                    '--deletebeforedays', 365
+                    '--deletebeforedays', '365'
                 ],
                 [
                     'shared_mobility_provider',
@@ -250,7 +250,7 @@ with DAG(
                     'time_to',
                     CONFIG.conn_id_public,
                     '--isdelete',
-                    '--deletebeforedays', 365
+                    '--deletebeforedays', '365'
                 ],
                 [
                     'shared_mobility_ids',
@@ -346,7 +346,7 @@ with DAG(
                     'time_to',
                     CONFIG.conn_id_public,
                     '--isdelete',
-                    '--deletebeforedays', 365
+                    '--deletebeforedays', '365'
                 ],
                 [
                     'shared_mobility_mart_edges',
@@ -410,7 +410,7 @@ with DAG(
                     'time_to',
                     CONFIG.conn_id_public,
                     '--isdelete',
-                    '--deletebeforedays', 365
+                    '--deletebeforedays', '365'
                 ],
                 [
                     'shared_mobility_mart_distinct_ids',
@@ -474,7 +474,7 @@ with DAG(
                     'time_to',
                     CONFIG.conn_id_public,
                     '--isdelete',
-                    '--deletebeforedays', 365
+                    '--deletebeforedays', '365'
                 ],
                 [
                     'shared_mobility_mart_scooter_age',
@@ -541,7 +541,7 @@ with DAG(
                     'time_to',
                     CONFIG.conn_id_public,
                     '--isdelete',
-                    '--deletebeforedays', 365
+                    '--deletebeforedays', '365'
                 ],
                 [
                     'shared_mobility_mart_trip_distance',
