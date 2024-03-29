@@ -178,14 +178,14 @@ with DAG(
             custom_cmd_args=[
                 [
                     'shared_mobility_provider',
-                    'time_to',
+                    'time',
                     CONFIG.conn_id_public,
                     '--isdelete',
                     '--deletebeforedays', '365'
                 ],
                 [
                     'shared_mobility_provider',
-                    'time_to',
+                    'time',
                     CONFIG.conn_id_private,
                 ],
             ]
@@ -247,14 +247,14 @@ with DAG(
             custom_cmd_args=[
                 [
                     'shared_mobility_ids',
-                    'time_to',
+                    'last_seen',
                     CONFIG.conn_id_public,
                     '--isdelete',
                     '--deletebeforedays', '365'
                 ],
                 [
                     'shared_mobility_ids',
-                    'time_to',
+                    'last_seen',
                     CONFIG.conn_id_private,
                 ],
             ]
@@ -407,14 +407,14 @@ with DAG(
             custom_cmd_args=[
                 [
                     'shared_mobility_mart_distinct_ids',
-                    'time_to',
+                    'time',
                     CONFIG.conn_id_public,
                     '--isdelete',
                     '--deletebeforedays', '365'
                 ],
                 [
                     'shared_mobility_mart_distinct_ids',
-                    'time_to',
+                    'time',
                     CONFIG.conn_id_private,
                 ],
             ]
@@ -471,14 +471,14 @@ with DAG(
             custom_cmd_args=[
                 [
                     'shared_mobility_mart_scooter_age',
-                    'time_to',
+                    'time',
                     CONFIG.conn_id_public,
                     '--isdelete',
                     '--deletebeforedays', '365'
                 ],
                 [
                     'shared_mobility_mart_scooter_age',
-                    'time_to',
+                    'time',
                     CONFIG.conn_id_private,
                 ],
             ]
@@ -538,14 +538,14 @@ with DAG(
             custom_cmd_args=[
                 [
                     'shared_mobility_mart_trip_distance',
-                    'time_to',
+                    'trip_end',
                     CONFIG.conn_id_public,
                     '--isdelete',
                     '--deletebeforedays', '365'
                 ],
                 [
                     'shared_mobility_mart_trip_distance',
-                    'time_to',
+                    'trip_end',
                     CONFIG.conn_id_private,
                 ],
             ]
