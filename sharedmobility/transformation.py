@@ -557,14 +557,56 @@ class ProviderEtlTransformation(SharedMobilityTransformation):
 
         return df
 
-    def _load(self, data: pd.DataFrame) -> None:
+    def _upsert_to_psql(self, data: pd.DataFrame) -> None:
 
-        # Load to PSQL
+        # TODO: Not DRY
         with self.get_postgres_sqlalchemy_engine(self._target_conn_id).begin() as conn:
-            rows = data.to_sql(smt.TableProvider.__tablename__, conn, index=False, if_exists='append')
+            # Insert data from one DAG run into temporary table
+            # Rows get inserted in another order in temp table than in the regular table.
+            dtype_definition = {col.name: col.type for col in smt.TableProvider.__table__.columns}
+            table_name_tmp = f'{smt.TableProvider.__tablename__}_tmp'
+            rows = data.to_sql(
+                table_name_tmp,
+                conn,
+                index=False,
+                if_exists='replace',
+                dtype=dtype_definition,
+            )
             logging.log(
                 logging.WARNING if (rows := rows) is None else logging.INFO,
-                f'Table {smt.TableMartEdges.__tablename__}: {rows} rows were affected.'
+                f'Table {smt.TableProvider.__tablename__}: {rows} rows were affected.'
+            )
+
+            # Insert to main table (shared_mobility_ids) with UPSERT
+            # The correct order of columns in the SELCECT statement is important
+            query = f"""
+                INSERT INTO {smt.TableProvider.__tablename__} as ins
+                SELECT
+                    time
+                    , provider
+                    , count_datapoints
+                    , count_distinct_ids
+                    , avg_delta_updated
+                    , count_available
+                    , count_disabled
+                    , count_reserved
+                FROM {table_name_tmp}
+                ON CONFLICT (time, provider) DO UPDATE
+                SET
+                    time = EXCLUDED.time
+                    , provider = EXCLUDED.provider
+                    , count_datapoints = EXCLUDED.count_datapoints
+                    , count_distinct_ids = EXCLUDED.count_distinct_ids
+                    , avg_delta_updated = EXCLUDED.avg_delta_updated
+                    , count_available = EXCLUDED.count_available
+                    , count_disabled = EXCLUDED.count_disabled
+                    , count_reserved = EXCLUDED.count_reserved
+                ;
+            """
+            rows = conn.execute(text(query))
+            logging.log(
+                logging.WARNING if rows == 0 else logging.INFO,
+                f'Table {smt.TableProvider.__tablename__}: {rows} rows were affected.'
             )
 
     def execute(self) -> None:
@@ -576,7 +618,7 @@ class ProviderEtlTransformation(SharedMobilityTransformation):
         df = self._transform(df)
 
         # Load
-        self._load(df)
+        self._upsert_to_psql(df)
 
 
 class IdsEtlTransformation(SharedMobilityTransformation):
