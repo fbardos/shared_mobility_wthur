@@ -9,6 +9,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import pickle
 from typing import Optional
+from typing import Type
+import traceback
+import sys
 
 import geopandas as gpd
 import numpy as np
@@ -23,8 +26,11 @@ from shapely.geometry import LineString, Point
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlmodel import SQLModel
+from airflow.exceptions import AirflowSkipException
 
 import sharedmobility.tables as smt
+
+from sharedmobility.config import SharedMobilityConfig
 
 
 class SharedMobilityTransformation(ABC):
@@ -39,20 +45,13 @@ class SharedMobilityTransformation(ABC):
     def execute(self) -> None:
         pass
 
-
-# Duplicate definition to the one in DAG
-@dataclass(frozen=True)
-class SharedMobilityConfig:
-    pos_south: float = 47.449753
-    pos_north: float = 47.532571
-    pos_west: float = 8.687158
-    pos_east: float = 8.784503
-    pos_change_when_bigger_than_meter: int = 50
-    mongo_conn_id: str = 'mongo_opendata'
-    redis_conn_id: str = 'redis_cache'
-    conn_id_private: str = 'psql_marts'
-    conn_id_public: str = 'psql_public'
-    keep_public_days: int = 365
+    def check_non_empty_data_else_skip(self, data: pd.DataFrame, config: SharedMobilityConfig):
+        if len(data.index) == 0:
+            try:
+                raise AirflowSkipException(f'No data available for city_bfs_id {config.city_bfs_id}.')
+            except:
+                traceback.print_exc()
+                sys.exit(99)  # Custom exit code
 
 
 class CheckOrCreatePostgresTableTransformation(SharedMobilityTransformation):
@@ -120,12 +119,14 @@ class DeleteOldRowsTransformation(SharedMobilityTransformation):
         table_name: str,
         column_name: str,
         target_conn_id: str,
+        city_bfs_id: int,
         is_delete: bool = False,
         delete_before: Optional[dt.datetime] = None,
     ):
         self._table_name = table_name
         self._column_name = column_name
         self._target_conn_id = target_conn_id
+        self._city_bfs_id = city_bfs_id
         self._is_delete = is_delete
         self._delete_before = delete_before
 
@@ -135,7 +136,9 @@ class DeleteOldRowsTransformation(SharedMobilityTransformation):
             with engine.connect() as conn:
                 query = f"""
                     DELETE FROM {self._table_name}
-                    WHERE {self._column_name}::date < :delete_from
+                    WHERE
+                        {self._column_name}::date < :delete_from
+                        AND city_bfs_id = {self._city_bfs_id}
                 """
                 conn.execute(text(query), dict(delete_from=self._delete_before))
 
@@ -145,9 +148,9 @@ class PathEtlTransformation(SharedMobilityTransformation):
     def __init__(
         self,
         target_conn_id: str,
-        config: Optional[SharedMobilityConfig] = None,
+        config: SharedMobilityConfig,
     ):
-        self._config = config if config else SharedMobilityConfig()
+        self._config = config
         self._target_conn_id = target_conn_id
 
     def _load_data_from_mongo(self) -> pd.DataFrame:
@@ -249,20 +252,22 @@ class PathEtlTransformation(SharedMobilityTransformation):
         )
         return df
 
+    def _get_redis_key(self, graph_type: str) -> str:
+        return f'sharedmobility:osmnx:graph:{self._config.city_bfs_id}:{graph_type}'
+
     def _get_graph_from_bbox(self, graph_type: str):
 
         # Caching: Load data from redis, when available
-        _key = f'sharedmobility:osmnx:graph:{graph_type}'
         redis = ConnectionInterface(SharedMobilityConfig.redis_conn_id).redis_connection
-        if redis.exists(_key):
-            return pickle.loads(redis.get(_key))
+        if redis.exists(self._get_redis_key(graph_type)):
+            return pickle.loads(redis.get(self._get_redis_key(graph_type)))
         else:
             graph = ox.graph_from_bbox(
                 south=self._config.pos_south, north=self._config.pos_north,
                 west=self._config.pos_west, east=self._config.pos_east,
                 network_type=graph_type
             )
-            redis.set(_key, pickle.dumps(graph), ex=60*60*12)
+            redis.set(self._get_redis_key(graph_type), pickle.dumps(graph), ex=60*60*12)
             return graph
 
 
@@ -276,6 +281,8 @@ class PathEtlTransformation(SharedMobilityTransformation):
 
     def _transform_and_calculate_paths(self, data: pd.DataFrame) -> pd.DataFrame:
         gdf = data
+
+        gdf['city_bfs_id'] = self._config.city_bfs_id
 
         # After UNION, delete rows, where max(time_to) per scooter ID is lower than the current execution date.
         # This means, that for this particular scooter, no path has to be recalculated again.
@@ -446,6 +453,7 @@ class PathEtlTransformation(SharedMobilityTransformation):
                 SELECT
                     id
                     , provider
+                    , city_bfs_id
                     , point
                     , time_from
                     , time_to
@@ -459,6 +467,7 @@ class PathEtlTransformation(SharedMobilityTransformation):
                 ON CONFLICT (id, time_from) DO UPDATE
                 SET
                     provider = EXCLUDED.provider
+                    , city_bfs_id = EXCLUDED.city_bfs_id
                     , point = EXCLUDED.point
                     , time_to = EXCLUDED.time_to
                     , distance_m = EXCLUDED.distance_m
@@ -479,7 +488,15 @@ class PathEtlTransformation(SharedMobilityTransformation):
 
         # Load data from MongoDB
         df = self._load_data_from_mongo()
-        
+        self.check_non_empty_data_else_skip(df, self._config)
+
+        if len(df.index) == 0:
+            logging.info(f'No data available for city_bfs_id {self._config.city_bfs_id}. Marks as SUCCESS.')
+            return
+            # raise AirflowSkipException(
+                # f'No data available for city_bfs_id {self._config.city_bfs_id}.'
+            # )
+
         # Extract JSON data to correct pandas DataFrame
         df = self._extract_data_from_mongodb_df(df)
 
@@ -549,22 +566,24 @@ class ProviderEtlTransformation(SharedMobilityTransformation):
             .reset_index()
             .rename(columns={'_meta_runtime_utc': 'time'})
         )
+        df['city_bfs_id'] = self._config.city_bfs_id
 
         # QA
         dfqa = PandasDataset(df)
-        assert dfqa.expect_column_values_to_be_between('count_datapoints', 0, 700).success
-        assert dfqa.expect_column_values_to_be_between('count_distinct_ids', 0, 700).success
+        # Disabled checks, because more cities than Winterthur are calculated now
+        # assert dfqa.expect_column_values_to_be_between('count_datapoints', 0, 700).success
+        # assert dfqa.expect_column_values_to_be_between('count_distinct_ids', 0, 700).success
 
         return df
 
     def _upsert_to_psql(self, data: pd.DataFrame) -> None:
 
         # TODO: Not DRY
+        table_name_tmp = f'{smt.TableProvider.__tablename__}_tmp'
         with self.get_postgres_sqlalchemy_engine(self._target_conn_id).begin() as conn:
             # Insert data from one DAG run into temporary table
             # Rows get inserted in another order in temp table than in the regular table.
             dtype_definition = {col.name: col.type for col in smt.TableProvider.__table__.columns}
-            table_name_tmp = f'{smt.TableProvider.__tablename__}_tmp'
             rows = data.to_sql(
                 table_name_tmp,
                 conn,
@@ -574,9 +593,10 @@ class ProviderEtlTransformation(SharedMobilityTransformation):
             )
             logging.log(
                 logging.WARNING if (rows := rows) is None else logging.INFO,
-                f'Table {smt.TableProvider.__tablename__}: {rows} rows were affected.'
+                f'Table {table_name_tmp}: {rows} rows were affected.'
             )
 
+        with self.get_postgres_sqlalchemy_engine(self._target_conn_id).begin() as conn:
             # Insert to main table (shared_mobility_ids) with UPSERT
             # The correct order of columns in the SELCECT statement is important
             query = f"""
@@ -584,6 +604,7 @@ class ProviderEtlTransformation(SharedMobilityTransformation):
                 SELECT
                     time
                     , provider
+                    , city_bfs_id
                     , count_datapoints
                     , count_distinct_ids
                     , avg_delta_updated
@@ -591,10 +612,11 @@ class ProviderEtlTransformation(SharedMobilityTransformation):
                     , count_disabled
                     , count_reserved
                 FROM {table_name_tmp}
-                ON CONFLICT (time, provider) DO UPDATE
+                ON CONFLICT (time, provider, city_bfs_id) DO UPDATE
                 SET
                     time = EXCLUDED.time
                     , provider = EXCLUDED.provider
+                    , city_bfs_id = EXCLUDED.city_bfs_id
                     , count_datapoints = EXCLUDED.count_datapoints
                     , count_distinct_ids = EXCLUDED.count_distinct_ids
                     , avg_delta_updated = EXCLUDED.avg_delta_updated
@@ -613,6 +635,7 @@ class ProviderEtlTransformation(SharedMobilityTransformation):
 
         # Extract
         df = self._load_data_from_mongo()
+        self.check_non_empty_data_else_skip(df, self._config)
 
         # Transform
         df = self._transform(df)
@@ -640,6 +663,7 @@ class IdsEtlTransformation(SharedMobilityTransformation):
         }
         cursor = col.find(query)
         df = pd.DataFrame(list(cursor))
+        self.check_non_empty_data_else_skip(df, self._config)
 
         df = (df
             .assign(id=lambda x: x['properties'].apply(lambda y: y['id']))
@@ -653,6 +677,7 @@ class IdsEtlTransformation(SharedMobilityTransformation):
             )
             .reset_index()
         )
+        df['city_bfs_id'] = self._config.city_bfs_id
 
         logging.info(f'Fill the table {smt.TableIds.__tablename__} with UPSERT')
         with self.get_postgres_sqlalchemy_engine(self._target_conn_id).begin() as conn:
@@ -669,11 +694,18 @@ class IdsEtlTransformation(SharedMobilityTransformation):
             # Insert to main table (shared_mobility_ids) with UPSERT
             query = f"""
                 INSERT INTO {smt.TableIds.__tablename__} as ins
-                SELECT *
+                SELECT
+                    id
+                    , provider
+                    , city_bfs_id
+                    , first_seen
+                    , last_seen
+                    , datapoints
                 FROM {table_name_tmp}
                 ON CONFLICT (id) DO UPDATE
                 SET
                     provider = EXCLUDED.provider
+                    , city_bfs_id = EXCLUDED.city_bfs_id
                     , first_seen = LEAST(ins.first_seen, EXCLUDED.first_seen)
                     , last_seen = GREATEST(ins.last_seen, EXCLUDED.last_seen)
                     , datapoints = ins.datapoints + EXCLUDED.datapoints
@@ -694,11 +726,13 @@ class GenerateMartEdges(SharedMobilityTransformation):
     def __init__(
         self,
         target_conn_id: str,
+        city_bfs_id: int,
         period_start: dt.datetime,
         period_end: dt.datetime,
 
     ):
         self._target_conn_id = target_conn_id
+        self._city_bfs_id = city_bfs_id
         self._period_start = period_start
         self._period_end = period_end
 
@@ -710,6 +744,7 @@ class GenerateMartEdges(SharedMobilityTransformation):
                 SELECT
                     t2.id
                     , t2.provider
+                    , t2.city_bfs_id
                     , t2.time_from
                     , t2.time_to
                     , t2.path_idx
@@ -723,6 +758,7 @@ class GenerateMartEdges(SharedMobilityTransformation):
                     SELECT
                         id
                         , provider
+                        , city_bfs_id
                         , time_from
                         , time_to
                         , coalesce(path[1], 0) AS path_idx
@@ -730,25 +766,27 @@ class GenerateMartEdges(SharedMobilityTransformation):
                         , LAG(geom) OVER (PARTITION BY t.id ORDER BY t.time_to, path) AS point_before
                     FROM (
                         SELECT
-                            id, provider, time_from, time_to,
+                            id, provider, city_bfs_id, time_from, time_to,
                             (ST_DumpPoints(path_walk_since_last)).*
                         FROM {smt.TablePath.__tablename__}
                         WHERE
                             time_from BETWEEN :t_start AND :t_end
+                            AND city_bfs_id = {self._city_bfs_id}
                     ) t
                 )t2
                 ON CONFLICT (id, time_from, path_idx) DO UPDATE
                 SET
                     provider = EXCLUDED.provider
+                    , city_bfs_id = EXCLUDED.city_bfs_id
                     , time_to = EXCLUDED.time_to
                     , point = EXCLUDED.point
                     , point_before = EXCLUDED.point_before
                     , distance_m = EXCLUDED.distance_m;
 
-
-
                 SELECT id from {smt.TablePath.__tablename__}
-                WHERE time_to BETWEEN :t_start and :t_end
+                WHERE
+                    time_to BETWEEN :t_start and :t_end
+                    AND city_bfs_id = {self._city_bfs_id}
             """
             conn.execute(text(query), dict(t_start=self._period_start, t_end=self._period_end))
 
@@ -758,10 +796,12 @@ class GenerateMartDistinctIds(SharedMobilityTransformation):
     def __init__(
         self,
         target_conn_id: str,
+        city_bfs_id: int,
         period_start: dt.datetime,
 
     ):
         self._target_conn_id = target_conn_id
+        self._city_bfs_id = city_bfs_id
         self._period_start = period_start
 
     def execute(self):
@@ -774,13 +814,15 @@ class GenerateMartDistinctIds(SharedMobilityTransformation):
                 INSERT INTO {smt.TableMartDistinctIds.__tablename__}
                 SELECT
                     provider
+                    , city_bfs_id
                     , date_trunc('day', time_from) as time
                     , COUNT(DISTINCT id) distinct_ids
                 FROM {smt.TablePath.__tablename__}
                 WHERE
                     date_trunc('day', time_from) = CAST( :t_start AS date )
-                GROUP BY provider, time
-                ON CONFLICT (provider, time) DO UPDATE
+                    AND city_bfs_id = {self._city_bfs_id}
+                GROUP BY provider, city_bfs_id, time
+                ON CONFLICT (provider, city_bfs_id, time) DO UPDATE
                 SET
                     distinct_ids = EXCLUDED.distinct_ids;
             """
@@ -792,10 +834,12 @@ class GenerateMartScooterAge(SharedMobilityTransformation):
     def __init__(
         self,
         target_conn_id: str,
+        city_bfs_id: int,
         period_start: dt.datetime,
         period_end: dt.datetime,
     ):
         self._target_conn_id = target_conn_id
+        self._city_bfs_id = city_bfs_id
         self._period_start = period_start
         self._period_end = period_end
 
@@ -806,6 +850,7 @@ class GenerateMartScooterAge(SharedMobilityTransformation):
                 INSERT INTO {smt.TableMartScooterAge.__tablename__}
                 SELECT
                     time
+                    , city_bfs_id
                     , provider
                     , AVG(current_age_days) as avg_age_days_scooter
                 from (
@@ -813,25 +858,29 @@ class GenerateMartScooterAge(SharedMobilityTransformation):
                         date_trunc('hour', day) as time
                         , EXTRACT(EPOCH FROM (date_trunc('hour', day) - t.min_time)) / 86400 as current_age_days
                         , provider
+                        , city_bfs_id
                     from (
                         select
                             id
                             , provider
+                            , city_bfs_id
                             , min(time_from) min_time
                             , max(time_to) max_time
                         FROM {smt.TablePath.__tablename__}
-                        group by id, provider
+                        group by id, provider, city_bfs_id
                     ) t
                     CROSS JOIN generate_series(t.min_time + interval '1' hour, t.max_time, interval '1 hour') as g(day)
                     WHERE
                         date_trunc('hour', day) between t.min_time and t.max_time
+                        AND city_bfs_id = :city_bfs_id
                 ) t2
                 WHERE
                     time BETWEEN :t_start AND :t_end
-                GROUP BY time, provider
+                    and city_bfs_id = :city_bfs_id
+                GROUP BY time, provider, city_bfs_id
                 ORDER BY time
             """
-            conn.execute(text(query), dict(t_start=self._period_start, t_end=self._period_end))
+            conn.execute(text(query), dict(t_start=self._period_start, t_end=self._period_end, city_bfs_id=self._city_bfs_id))
 
 
 class GenerateMartTripDistance(SharedMobilityTransformation):
@@ -839,10 +888,12 @@ class GenerateMartTripDistance(SharedMobilityTransformation):
     def __init__(
         self,
         target_conn_id: str,
+        city_bfs_id: int,
         period_start: dt.datetime,
         period_end: dt.datetime,
     ):
         self._target_conn_id = target_conn_id
+        self._city_bfs_id = city_bfs_id
         self._period_start = period_start
         self._period_end = period_end
 
@@ -854,6 +905,7 @@ class GenerateMartTripDistance(SharedMobilityTransformation):
                 select
                     id
                     , provider
+                    , city_bfs_id
                     , trip_id
                     , min(time_from) as trip_start
                     , max(time_from) as trip_end
@@ -867,6 +919,7 @@ class GenerateMartTripDistance(SharedMobilityTransformation):
                         SELECT
                             id
                             , provider
+                            , city_bfs_id
                             , time_from
                             , time_to
                             , moving
@@ -878,12 +931,15 @@ class GenerateMartTripDistance(SharedMobilityTransformation):
                 ) t2
                 WHERE
                     t2.time_from BETWEEN :t_start AND :t_end
-                group by provider, id, trip_id
+                    AND city_bfs_id = :city_bfs_id
+                group by provider, city_bfs_id, id, trip_id
                 ON CONFLICT (id, trip_id) DO UPDATE
                 SET
-                    trip_start = EXCLUDED.trip_start
+                    provider = EXCLUDED.provider
+                    , city_bfs_id = EXCLUDED.city_bfs_id
+                    , trip_start = EXCLUDED.trip_start
                     , trip_end = EXCLUDED.trip_end
                     , trip_walk_distance_m = EXCLUDED.trip_walk_distance_m
                     , trip_bike_distance_m = EXCLUDED.trip_bike_distance_m;
             """
-            conn.execute(text(query), dict(t_start=self._period_start, t_end=self._period_end))
+            conn.execute(text(query), dict(t_start=self._period_start, t_end=self._period_end, city_bfs_id=self._city_bfs_id))

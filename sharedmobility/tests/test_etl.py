@@ -14,6 +14,7 @@ from airflow.models import DagBag
 
 import sharedmobility.tables as smt
 import sharedmobility.transformation as sm
+from sharedmobility.config import load_dataclass_instance_from_name
 
 # Important when importing local files:
 #   Pytest comes up with this test package name by finding the first directory at or above the level of the file that
@@ -91,7 +92,8 @@ class TestPathEtl:
         monkeyclass.setenv('AIRFLOW_CONTEXT__CONTEXT__DATA_INTERVAL_END', '2023-01-02T00:05:00+00:00')
         
         op = sm.PathEtlTransformation(
-            target_conn_id='dummy'
+            target_conn_id='dummy',
+            config=load_dataclass_instance_from_name('WinterthurSharedMobilityConfig'),
         )
         return self.OperatorContainer(op)
 

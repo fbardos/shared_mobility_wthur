@@ -23,6 +23,7 @@ class TablePath(SQLModel, table=True, metaclass=ColumnCloningMetaclass):
 
     id: str = Field(String, primary_key=True)
     provider: str = Field(String, index=True)
+    city_bfs_id: int = Field(Integer)
     point: Any = Field(sa_column=Column(Geometry('POINT')))
     time_from: dt.datetime = Field(DateTime, primary_key=True, index=True)
     time_to: dt.datetime = Field(DateTime, index=True)
@@ -40,6 +41,7 @@ class TableProvider(SQLModel, table=True):
 
     time: dt.datetime = Field(DateTime, primary_key=True)
     provider: str = Field(String, primary_key=True)
+    city_bfs_id: int = Field(Integer, primary_key=True)
     count_datapoints: int = Field(Integer)
     count_distinct_ids: int = Field(Integer)
     avg_delta_updated: float = Field(Float)
@@ -54,6 +56,7 @@ class TableIds(SQLModel, table=True):
 
     id: str = Field(String, primary_key=True)
     provider: str = Field(String, index=True)
+    city_bfs_id: int = Field(Integer)
     first_seen: dt.datetime = Field(DateTime, index=True)
     last_seen: dt.datetime = Field(DateTime, index=True)
     datapoints: int = Field(Integer)
@@ -65,6 +68,7 @@ class TableMartEdges(SQLModel, table=True, metaclass=ColumnCloningMetaclass):
 
     id: str = Field(String, primary_key=True, index=True)
     provider: str = Field(String)
+    city_bfs_id: int = Field(Integer)
     time_from: dt.datetime = Field(DateTime, primary_key=True, index=True)
     time_to: dt.datetime = Field(DateTime, index=True)
     path_idx: int = Field(Integer, primary_key=True)
@@ -83,6 +87,7 @@ class TableMartDistinctIds(SQLModel, table=True, metaclass=ColumnCloningMetaclas
     __tablename__ = 'shared_mobility_mart_distinct_ids'
 
     provider: str = Field(String, primary_key=True, nullable=False)
+    city_bfs_id: int = Field(Integer, primary_key=True, nullable=False)
     time: dt.datetime = Field(DateTime, primary_key=True, nullable=False, index=True)
     distinct_ids: int = Field(Integer, nullable=False)
 
@@ -92,6 +97,7 @@ class TableMartScooterAge(SQLModel, table=True, metaclass=ColumnCloningMetaclass
     __tablename__ = 'shared_mobility_mart_scooter_age'
 
     time: dt.datetime = Field(DateTime, primary_key=True, nullable=False)
+    city_bfs_id: int = Field(Integer, primary_key=True, nullable=False)
     provider: str = Field(String, primary_key=True, nullable=False)
     avg_age_days_scooter: float = Field(Float, nullable=False)
 
@@ -102,6 +108,7 @@ class TableMartTripDistance(SQLModel, table=True, metaclass=ColumnCloningMetacla
 
     id: str = Field(String, primary_key=True, nullable=False)
     provider: str = Field(String, nullable=False, index=True)
+    city_bfs_id: int = Field(Integer)
     trip_id: str = Field(String, primary_key=True, nullable=False)
     trip_start: dt.datetime = Field(DateTime, nullable=False)
     trip_end: dt.datetime = Field(DateTime, nullable=False)
