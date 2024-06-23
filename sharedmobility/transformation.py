@@ -156,26 +156,28 @@ class PathEtlTransformation(SharedMobilityTransformation):
     def _load_data_from_mongo(self) -> pd.DataFrame:
         """Load all datapoints for the given day."""
         logging.info('Load data from MongoDB')
-        mongo_db = self.get_mongodb_pymongo_collection(self._config.mongo_conn_id)
-        col = mongo_db.shared_mobility
-        query = {
-            'geometry.coordinates.1': {'$gt': self._config.pos_south, '$lt': self._config.pos_north},
-            'geometry.coordinates.0': {'$gt': self._config.pos_west, '$lt': self._config.pos_east},
-            # Datetime is stored as UTC
-            '_meta_runtime_utc': {
-                '$gt': ContextInterface().env_data_interval_start,
-                '$lt': ContextInterface().env_data_interval_end,
-            },
-        }
-        projection = {
-            '_id': 0,
-            'geometry.coordinates': 1,
-            'id': 1,
-            '_meta_last_updated_utc': 1,
-            'properties.provider.name': 1,
-        }
-        cursor = col.find(query, projection)
-        # mongo_db.close()
+        mongodb = self.get_mongodb_pymongo_collection(self._config.mongo_conn_id)
+        try:
+            col = mongodb.shared_mobility
+            query = {
+                'geometry.coordinates.1': {'$gt': self._config.pos_south, '$lt': self._config.pos_north},
+                'geometry.coordinates.0': {'$gt': self._config.pos_west, '$lt': self._config.pos_east},
+                # Datetime is stored as UTC
+                '_meta_runtime_utc': {
+                    '$gt': ContextInterface().env_data_interval_start,
+                    '$lt': ContextInterface().env_data_interval_end,
+                },
+            }
+            projection = {
+                '_id': 0,
+                'geometry.coordinates': 1,
+                'id': 1,
+                '_meta_last_updated_utc': 1,
+                'properties.provider.name': 1,
+            }
+            cursor = col.find(query, projection)
+        finally:
+            mongodb.client.close()
         return pd.DataFrame(list(cursor))
 
     def _extract_data_from_mongodb_df(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -520,16 +522,19 @@ class ProviderEtlTransformation(SharedMobilityTransformation):
 
     def _load_data_from_mongo(self) -> pd.DataFrame:
         mongodb = self.get_mongodb_pymongo_collection(self._config.mongo_conn_id)
-        col = mongodb.shared_mobility
-        query = {
-            'geometry.coordinates.1': {'$gt': self._config.pos_south, '$lt': self._config.pos_north},
-            'geometry.coordinates.0': {'$gt': self._config.pos_west, '$lt': self._config.pos_east},
-            '_meta_runtime_utc': {
-                '$gt': ContextInterface().env_data_interval_start,
-                '$lt': ContextInterface().env_data_interval_end,
-            },
-        }
-        cursor = col.find(query)
+        try:
+            col = mongodb.shared_mobility
+            query = {
+                'geometry.coordinates.1': {'$gt': self._config.pos_south, '$lt': self._config.pos_north},
+                'geometry.coordinates.0': {'$gt': self._config.pos_west, '$lt': self._config.pos_east},
+                '_meta_runtime_utc': {
+                    '$gt': ContextInterface().env_data_interval_start,
+                    '$lt': ContextInterface().env_data_interval_end,
+                },
+            }
+            cursor = col.find(query)
+        finally:
+            mongodb.client.close()
         return pd.DataFrame(list(cursor))
 
     def _transform(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -645,17 +650,20 @@ class IdsEtlTransformation(SharedMobilityTransformation):
 
     def execute(self) -> None:
         mongodb = self.get_mongodb_pymongo_collection(self._config.mongo_conn_id)
-        col = mongodb.shared_mobility
-        query = {
-            'geometry.coordinates.1': {'$gt': self._config.pos_south, '$lt': self._config.pos_north},
-            'geometry.coordinates.0': {'$gt': self._config.pos_west, '$lt': self._config.pos_east},
-            '_meta_runtime_utc': {
-                '$gt': ContextInterface().env_data_interval_start,
-                '$lt': ContextInterface().env_data_interval_end,
-            },
-        }
-        cursor = col.find(query)
-        df = pd.DataFrame(list(cursor))
+        try:
+            col = mongodb.shared_mobility
+            query = {
+                'geometry.coordinates.1': {'$gt': self._config.pos_south, '$lt': self._config.pos_north},
+                'geometry.coordinates.0': {'$gt': self._config.pos_west, '$lt': self._config.pos_east},
+                '_meta_runtime_utc': {
+                    '$gt': ContextInterface().env_data_interval_start,
+                    '$lt': ContextInterface().env_data_interval_end,
+                },
+            }
+            cursor = col.find(query)
+            df = pd.DataFrame(list(cursor))
+        finally:
+            mongodb.client.close()
         self.check_non_empty_data_else_skip(df, self._config)
 
         df = (df
