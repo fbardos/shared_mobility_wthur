@@ -1,4 +1,4 @@
-FROM condaforge/mambaforge:latest
+FROM condaforge/mambaforge:23.11.0-0
 
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
