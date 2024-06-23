@@ -34,6 +34,10 @@ with DAG(
     max_active_runs=1,
     concurrency=12,
     catchup=True,  # build for every day in the past
+    default_args=dict(
+        email='fabian@bardos.dev',
+        email_on_failure=True,
+    ),
     tags=['mart', 'shared_mobility'],
 ) as dag:
 
