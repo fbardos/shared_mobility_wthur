@@ -18,6 +18,7 @@ from python_docker_operator.operator import PythonDockerOperator
 from airflow import DAG
 from airflow.operators.dummy import DummyOperator
 from airflow.models.baseoperator import chain
+from airflow.models import Variable
 
 from sharedmobility.config import SharedMobilityConfig
 
@@ -72,6 +73,7 @@ with DAG(
         PythonDockerOperator
         .partial(
             task_id='assert_table_path',
+            docker_url=Variable.get('DOCKER__URL'),
             image=DOCKER_IMAGE,
             custom_file_path=os.path.join('tasks', 'assert_table.py'),
             custom_connection_ids=DB_CONNECTIONS,
@@ -85,6 +87,7 @@ with DAG(
         PythonDockerOperator
         .partial(
             task_id='path_etl',
+            docker_url=Variable.get('DOCKER__URL'),
             image=DOCKER_IMAGE,
             custom_file_path=os.path.join('tasks', 'path_etl.py'),
             custom_connection_ids=[
@@ -104,6 +107,7 @@ with DAG(
         PythonDockerOperator
         .partial(
             task_id='assert_table_provider',
+            docker_url=Variable.get('DOCKER__URL'),
             image=DOCKER_IMAGE,
             custom_file_path=os.path.join('tasks', 'assert_table.py'),
             custom_connection_ids=DB_CONNECTIONS,
@@ -117,6 +121,7 @@ with DAG(
         PythonDockerOperator
         .partial(
             task_id='provider_etl',
+            docker_url=Variable.get('DOCKER__URL'),
             image=DOCKER_IMAGE,
             custom_file_path=os.path.join('tasks', 'path_provider.py'),
             custom_connection_ids=[
@@ -135,6 +140,7 @@ with DAG(
         PythonDockerOperator
         .partial(
             task_id='assert_table_ids',
+            docker_url=Variable.get('DOCKER__URL'),
             image=DOCKER_IMAGE,
             custom_file_path=os.path.join('tasks', 'assert_table.py'),
             custom_connection_ids=DB_CONNECTIONS,
@@ -149,6 +155,7 @@ with DAG(
         PythonDockerOperator
         .partial(
             task_id='provider_ids',
+            docker_url=Variable.get('DOCKER__URL'),
             image=DOCKER_IMAGE,
             custom_file_path=os.path.join('tasks', 'ids_etl.py'),
             custom_connection_ids=[
@@ -167,6 +174,7 @@ with DAG(
         PythonDockerOperator
         .partial(
             task_id='assert_rows_path',
+            docker_url=Variable.get('DOCKER__URL'),
             image=DOCKER_IMAGE,
             custom_file_path=os.path.join('tasks', 'assert_rows.py'),
             custom_connection_ids=DB_CONNECTIONS,
@@ -185,6 +193,7 @@ with DAG(
         PythonDockerOperator
         .partial(
             task_id='assert_table_mart_edges',
+            docker_url=Variable.get('DOCKER__URL'),
             image=DOCKER_IMAGE,
             custom_file_path=os.path.join('tasks', 'assert_table.py'),
             custom_connection_ids=DB_CONNECTIONS,
@@ -198,6 +207,7 @@ with DAG(
         PythonDockerOperator
         .partial(
             task_id='mart_edges',
+            docker_url=Variable.get('DOCKER__URL'),
             image=DOCKER_IMAGE,
             custom_file_path=os.path.join('tasks', 'mart_edges.py'),
             custom_connection_ids=DB_CONNECTIONS,
@@ -212,6 +222,7 @@ with DAG(
         PythonDockerOperator
         .partial(
             task_id='assert_table_mart_distinct_ids',
+            docker_url=Variable.get('DOCKER__URL'),
             image=DOCKER_IMAGE,
             custom_file_path=os.path.join('tasks', 'assert_table.py'),
             custom_connection_ids=DB_CONNECTIONS,
@@ -225,6 +236,7 @@ with DAG(
         PythonDockerOperator
         .partial(
             task_id='mart_distinct_ids',
+            docker_url=Variable.get('DOCKER__URL'),
             image=DOCKER_IMAGE,
             custom_file_path=os.path.join('tasks', 'mart_distinct_ids.py'),
             custom_connection_ids=DB_CONNECTIONS,
@@ -240,6 +252,7 @@ with DAG(
         PythonDockerOperator
         .partial(
             task_id='assert_table_mart_scooter_age',
+            docker_url=Variable.get('DOCKER__URL'),
             image=DOCKER_IMAGE,
             custom_file_path=os.path.join('tasks', 'assert_table.py'),
             custom_connection_ids=DB_CONNECTIONS,
@@ -253,6 +266,7 @@ with DAG(
         PythonDockerOperator
         .partial(
             task_id='mart_scooter_age',
+            docker_url=Variable.get('DOCKER__URL'),
             image=DOCKER_IMAGE,
             custom_file_path=os.path.join('tasks', 'mart_scooter_age.py'),
             custom_connection_ids=DB_CONNECTIONS,
@@ -267,6 +281,7 @@ with DAG(
         PythonDockerOperator
         .partial(
             task_id='assert_table_mart_trip_distance',
+            docker_url=Variable.get('DOCKER__URL'),
             image=DOCKER_IMAGE,
             custom_file_path=os.path.join('tasks', 'assert_table.py'),
             custom_connection_ids=DB_CONNECTIONS,
@@ -280,6 +295,7 @@ with DAG(
         PythonDockerOperator
         .partial(
             task_id='mart_trip_distance',
+            docker_url=Variable.get('DOCKER__URL'),
             image=DOCKER_IMAGE,
             custom_file_path=os.path.join('tasks', 'mart_trip_distance.py'),
             custom_connection_ids=DB_CONNECTIONS,
