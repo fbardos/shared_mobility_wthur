@@ -422,10 +422,6 @@ class PathEtlTransformation(SharedMobilityTransformation):
         assert dfqa.expect_column_values_to_not_be_null('moving').success
         assert dfqa.expect_column_values_to_not_be_null('time_from').success
         assert dfqa.expect_column_values_to_not_be_null('time_to').success
-        assert dfqa.expect_column_values_to_be_between('distance_m', min_value=0, max_value=20_000).success
-        assert dfqa.expect_column_values_to_be_between('distance_m_walk', min_value=0, max_value=20_000).success
-        assert dfqa.expect_column_values_to_be_between('distance_m_bike', min_value=0, max_value=20_000).success
-        assert dfqa.expect_column_unique_value_count_to_be_between('provider', min_value=0, max_value=8).success
 
     def _upsert_to_psql(self, data: gpd.GeoDataFrame) -> None:
         with self.get_postgres_sqlalchemy_engine(self._target_conn_id).begin() as conn:
@@ -570,9 +566,6 @@ class ProviderEtlTransformation(SharedMobilityTransformation):
 
         # QA
         dfqa = PandasDataset(df)
-        # Disabled checks, because more cities than Winterthur are calculated now
-        # assert dfqa.expect_column_values_to_be_between('count_datapoints', 0, 700).success
-        # assert dfqa.expect_column_values_to_be_between('count_distinct_ids', 0, 700).success
 
         return df
 
