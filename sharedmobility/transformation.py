@@ -176,9 +176,10 @@ class PathEtlTransformation(SharedMobilityTransformation):
                 'properties.provider.name': 1,
             }
             cursor = col.find(query, projection)
+            df = pd.DataFrame(list(cursor))
         finally:
             mongodb.client.close()
-        return pd.DataFrame(list(cursor))
+        return df
 
     def _extract_data_from_mongodb_df(self, data: pd.DataFrame) -> pd.DataFrame:
         """Extract data from MongoDB result set."""
@@ -533,9 +534,10 @@ class ProviderEtlTransformation(SharedMobilityTransformation):
                 },
             }
             cursor = col.find(query)
+            df = pd.DataFrame(list(cursor))
         finally:
             mongodb.client.close()
-        return pd.DataFrame(list(cursor))
+        return df
 
     def _transform(self, data: pd.DataFrame) -> pd.DataFrame:
         df = (data
