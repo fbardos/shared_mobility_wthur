@@ -35,7 +35,7 @@ with DAG(
     concurrency=12,
     catchup=True,  # build for every day in the past
     default_args=dict(
-        email='fabian@bardos.dev',
+        email=Variable.get('AIRFLOW__MAIL_FAILURE'),
         email_on_failure=True,
     ),
     tags=['mart', 'shared_mobility'],
