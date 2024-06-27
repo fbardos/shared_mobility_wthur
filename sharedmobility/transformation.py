@@ -614,9 +614,6 @@ class ProviderEtlTransformation(SharedMobilityTransformation):
                 FROM {table_name_tmp}
                 ON CONFLICT (time, provider, city_bfs_id) DO UPDATE
                 SET
-                    time = EXCLUDED.time
-                    , provider = EXCLUDED.provider
-                    , city_bfs_id = EXCLUDED.city_bfs_id
                     , count_datapoints = EXCLUDED.count_datapoints
                     , count_distinct_ids = EXCLUDED.count_distinct_ids
                     , avg_delta_updated = EXCLUDED.avg_delta_updated
