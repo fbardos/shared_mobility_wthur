@@ -37,6 +37,8 @@ with DAG(
     default_args=dict(
         email=Variable.get('AIRFLOW__MAIL_FAILURE'),
         email_on_failure=True,
+        retries=1,
+        retry_delay=dt.timedelta(minutes=3),
     ),
     tags=['mart', 'shared_mobility'],
 ) as dag:
