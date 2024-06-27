@@ -317,6 +317,14 @@ class PathEtlTransformation(SharedMobilityTransformation):
             .drop_duplicates(['id', 'time_from'])
             .assign(distance_m=lambda x: x['distance_m'].replace(np.nan, 0))
 
+        )
+
+        # If point_middle is not available, there was no scooter movement at all, which cannot be right.
+        # If so, skip this task to prevent the whole DAG to fail.
+        if 'point_middle' not in gdf.columns:
+            raise AirflowSkipException('No movement of scooters detected. Skip this task.')
+
+        gdf = (gdf
             # Determine, if scooter is currently moving
             .assign(moving=lambda x: np.where((x['time_from'] == x['time_to']) & (x['_has_moved'] == 1), True, False))
             .set_geometry('point_middle', drop=True, crs='EPSG:21781')
