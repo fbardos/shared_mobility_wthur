@@ -706,10 +706,9 @@ class IdsEtlTransformation(SharedMobilityTransformation):
                     , last_seen
                     , datapoints
                 FROM {table_name_tmp}
-                ON CONFLICT (id) DO UPDATE
+                ON CONFLICT (id, city_bfs_id) DO UPDATE
                 SET
                     provider = EXCLUDED.provider
-                    , city_bfs_id = EXCLUDED.city_bfs_id
                     , first_seen = LEAST(ins.first_seen, EXCLUDED.first_seen)
                     , last_seen = GREATEST(ins.last_seen, EXCLUDED.last_seen)
                     , datapoints = ins.datapoints + EXCLUDED.datapoints

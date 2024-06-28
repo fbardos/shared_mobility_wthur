@@ -56,7 +56,7 @@ class TableIds(SQLModel, table=True):
 
     id: str = Field(String, primary_key=True)
     provider: str = Field(String, index=True)
-    city_bfs_id: int = Field(Integer)
+    city_bfs_id: int = Field(Integer, primary_key=True)
     first_seen: dt.datetime = Field(DateTime, index=True)
     last_seen: dt.datetime = Field(DateTime, index=True)
     datapoints: int = Field(Integer)
