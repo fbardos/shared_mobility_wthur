@@ -45,13 +45,16 @@ class SharedMobilityTransformation(ABC):
     def execute(self) -> None:
         pass
 
+    def raise_skip_exception(self, msg: str) -> None:
+        try:
+            raise AirflowSkipException(msg)
+        except:
+            traceback.print_exc()
+            sys.exit(99)  # Custom exit code
+
     def check_non_empty_data_else_skip(self, data: pd.DataFrame, config: SharedMobilityConfig):
         if len(data.index) == 0:
-            try:
-                raise AirflowSkipException(f'No data available for city_bfs_id {config.city_bfs_id}.')
-            except:
-                traceback.print_exc()
-                sys.exit(99)  # Custom exit code
+            self.raise_skip_exception(f'No data available for city_bfs_id {config.city_bfs_id}.')
 
 
 class CheckOrCreatePostgresTableTransformation(SharedMobilityTransformation):
@@ -322,7 +325,7 @@ class PathEtlTransformation(SharedMobilityTransformation):
         # If point_middle is not available, there was no scooter movement at all, which cannot be right.
         # If so, skip this task to prevent the whole DAG to fail.
         if 'point_middle' not in gdf.columns:
-            raise AirflowSkipException('No movement of scooters detected. Skip this task.')
+            self.raise_skip_exception('No movement of scooters detected. Skip this task.')
 
         gdf = (gdf
             # Determine, if scooter is currently moving
@@ -496,13 +499,6 @@ class PathEtlTransformation(SharedMobilityTransformation):
         # Load data from MongoDB
         df = self._load_data_from_mongo()
         self.check_non_empty_data_else_skip(df, self._config)
-
-        if len(df.index) == 0:
-            logging.info(f'No data available for city_bfs_id {self._config.city_bfs_id}. Marks as SUCCESS.')
-            return
-            # raise AirflowSkipException(
-                # f'No data available for city_bfs_id {self._config.city_bfs_id}.'
-            # )
 
         # Extract JSON data to correct pandas DataFrame
         df = self._extract_data_from_mongodb_df(df)
