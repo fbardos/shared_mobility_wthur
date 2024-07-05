@@ -741,7 +741,7 @@ class GenerateMartEdges(SharedMobilityTransformation):
 
     def execute(self):
         engine = self.get_postgres_sqlalchemy_engine(self._target_conn_id)
-        with engine.connect() as conn:
+        with engine.begin() as conn:
             query = f"""
                 INSERT INTO {smt.TableMartEdges.__tablename__}
                 SELECT
@@ -809,7 +809,7 @@ class GenerateMartDistinctIds(SharedMobilityTransformation):
 
     def execute(self):
         engine = self.get_postgres_sqlalchemy_engine(self._target_conn_id)
-        with engine.connect() as conn:
+        with engine.begin() as conn:
             # TODO: This query is currently not ready for inter-day periods,
             #   because it takes only the day of period_start.
             #   --> Add an UPSERT statement for the whole day, when DAG is executed multiple times a day.
@@ -848,7 +848,7 @@ class GenerateMartScooterAge(SharedMobilityTransformation):
 
     def execute(self):
         engine = self.get_postgres_sqlalchemy_engine(self._target_conn_id)
-        with engine.connect() as conn:
+        with engine.begin() as conn:
             query = f"""
                 INSERT INTO {smt.TableMartScooterAge.__tablename__}
                 SELECT
@@ -902,7 +902,7 @@ class GenerateMartTripDistance(SharedMobilityTransformation):
 
     def execute(self):
         engine = self.get_postgres_sqlalchemy_engine(self._target_conn_id)
-        with engine.connect() as conn:
+        with engine.begin() as conn:
             query = f"""
                 INSERT INTO {smt.TableMartTripDistance.__tablename__}
                 select
