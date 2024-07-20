@@ -9,7 +9,7 @@ from geopandas.array import GeometryDtype
 import pandas as pd
 import pytest
 from osmnx.io import load_graphml
-
+from networkx import MultiDiGraph
 from airflow.models import DagBag
 
 import sharedmobility.tables as smt
@@ -71,81 +71,63 @@ class TestPathEtl:
 
     @pytest.fixture(scope='class')
     def path_etl_operator(self, monkeyclass) -> OperatorContainer:
-        
-        # def mocked_data_interval_start(*args, **kwargs) -> dt.datetime:
-            # return dt.datetime(2023, 1, 1, tzinfo=dt.timezone.utc)
-        
-        # monkeyclass.setattr(SharedMobilityPathEtlOperator, 'get_data_interval_start', mocked_data_interval_start)
-        # monkeyclass.setattr(ContextVariables, 'get_env_interval_start', property(mocked_data_interval_start))
 
-        # meta = MetaData()
-        # config = SharedMobilityConfig()  # use default values
-        # op = SharedMobilityPathEtlOperator(
-            # # task_id=TEST_TASK_ID,  --> REMOVED because not a Airflow BaseOperator anymore
-            # # meta=meta,
-            # # config=config,
-            # target_conn_id='dummy',
-        # )
-        
         # Path ENV variables
         monkeyclass.setenv('AIRFLOW_CONTEXT__CONTEXT__DATA_INTERVAL_START', '2023-01-01T00:05:00+00:00')
         monkeyclass.setenv('AIRFLOW_CONTEXT__CONTEXT__DATA_INTERVAL_END', '2023-01-02T00:05:00+00:00')
-        
+
         op = sm.PathEtlTransformation(
             target_conn_id='dummy',
             config=load_dataclass_instance_from_name('WinterthurSharedMobilityConfig'),
         )
         return self.OperatorContainer(op)
 
-    @pytest.fixture(scope='class')
-    def graph_walk(self):
+    @property
+    def graph_walk(self) -> MultiDiGraph:
         return load_graphml(get_path_testdata('graph_walk_2023-11-11.graphml.xml'))
 
-    @pytest.fixture(scope='class')
-    def graph_bike(self):
+    @property
+    def graph_bike(self) -> MultiDiGraph:
         return load_graphml(get_path_testdata('graph_bike_2023-11-11.graphml.xml'))
 
     @pytest.fixture(scope='class')
     def data_simple(self, path_etl_operator, data_path_simple) -> OperatorContainer:
         path_etl_operator.data = path_etl_operator.operator._extract_data_from_mongodb_df(data_path_simple)
         return path_etl_operator
-    
+
     @pytest.fixture(scope='class')
     def data_double(self, path_etl_operator, data_path_double) -> OperatorContainer:
         path_etl_operator.data = path_etl_operator.operator._extract_data_from_mongodb_df(data_path_double)
         return path_etl_operator
-    
+
     @pytest.fixture(scope='class')
     def data_standing(self, path_etl_operator, data_path_standing) -> OperatorContainer:
         path_etl_operator.data = path_etl_operator.operator._extract_data_from_mongodb_df(data_path_standing)
         return path_etl_operator
 
     @pytest.fixture(scope='class')
-    def calculated_path(self, monkeyclass, data_simple, graph_walk, graph_bike) -> pd.DataFrame:
-        # TODO: DRY: Find a way to not write duplicate monkeypatches for multiple fixtures...
-        monkeyclass.setattr(sm.PathEtlTransformation, 'graph_walk', graph_walk)
-        monkeyclass.setattr(sm.PathEtlTransformation, 'graph_bike', graph_bike)
+    def _patch_graphs(self, monkeyclass) -> None:
+        monkeyclass.setattr(sm.PathEtlTransformation, 'graph_walk', self.graph_walk)
+        monkeyclass.setattr(sm.PathEtlTransformation, 'graph_bike', self.graph_bike)
+
+    @pytest.fixture(scope='class')
+    def calculated_path(self, data_simple, _patch_graphs) -> pd.DataFrame:
 
         # Calculate actual paths (can take some time)
         return data_simple.operator._transform_and_calculate_paths(
             data_simple.data
         )
-    
+
     @pytest.fixture(scope='class')
-    def calculated_path_double(self, monkeyclass, data_double, graph_walk, graph_bike) -> pd.DataFrame:
-        monkeyclass.setattr(sm.PathEtlTransformation, 'graph_walk', graph_walk)
-        monkeyclass.setattr(sm.PathEtlTransformation, 'graph_bike', graph_bike)
+    def calculated_path_double(self, data_double, _patch_graphs) -> pd.DataFrame:
 
         # Calculate actual paths (can take some time)
         return data_double.operator._transform_and_calculate_paths(
             data_double.data
         )
-    
-    @pytest.fixture(scope='class')
-    def calculated_path_standing(self, monkeyclass, data_standing, graph_walk, graph_bike) -> pd.DataFrame:
-        monkeyclass.setattr(sm.PathEtlTransformation, 'graph_walk', graph_walk)
-        monkeyclass.setattr(sm.PathEtlTransformation, 'graph_bike', graph_bike)
 
+    @pytest.fixture(scope='class')
+    def calculated_path_standing(self, data_standing, _patch_graphs) -> pd.DataFrame:
 
         # Calculate actual paths (can take some time)
         return data_standing.operator._transform_and_calculate_paths(
@@ -162,7 +144,7 @@ class TestPathEtl:
     )
     def test_dataframe_output(self, data, expected_type, request):
         assert isinstance(request.getfixturevalue(data), expected_type)
-    
+
     @pytest.mark.parametrize(
         'data, expected_len',
         [
