@@ -73,8 +73,14 @@ class TestPathEtl:
     def path_etl_operator(self, monkeyclass) -> OperatorContainer:
 
         # Path ENV variables
-        monkeyclass.setenv('AIRFLOW_CONTEXT__CONTEXT__DATA_INTERVAL_START', '2023-01-01T00:05:00+00:00')
-        monkeyclass.setenv('AIRFLOW_CONTEXT__CONTEXT__DATA_INTERVAL_END', '2023-01-02T00:05:00+00:00')
+        monkeyclass.setenv(
+            'AIRFLOW_CONTEXT__CONTEXT__DATA_INTERVAL_START',
+            '2023-01-01T00:05:00+00:00'
+        )
+        monkeyclass.setenv(
+            'AIRFLOW_CONTEXT__CONTEXT__DATA_INTERVAL_END',
+            '2023-01-02T00:05:00+00:00'
+        )
 
         op = sm.PathEtlTransformation(
             target_conn_id='dummy',
